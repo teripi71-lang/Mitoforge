@@ -163,7 +163,8 @@ function syncWrite_(folder, name, contents) {
     existing.setContent(contents);
     return existing;
   }
-  return folder.createFile(name, contents, MimeType.JSON);
+  // DriveApp's MimeType enum has no JSON member. A mime type string is valid here.
+  return folder.createFile(name, contents, "application/json");
 }
 
 function syncPrune_(folder, today) {
