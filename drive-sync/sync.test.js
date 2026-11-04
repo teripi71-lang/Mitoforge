@@ -322,6 +322,10 @@ test("the page wires the real backup function and the service worker cache bumpe
   assert.match(sw, /mitoforge-shell-v2/);
   assert.match(sw, /script\.google\.com/);
   assert.match(sw, /drive-sync\/sync-client\.js/);
+  const script = fs.readFileSync(path.join(__dirname, "Code.gs"), "utf8");
+  assert.equal((script.match(/MimeType\.JSON/g) || []).length, 1);
+  assert.match(script, /ContentService\.MimeType\.JSON/);
+  assert.match(script, /createFile\(name, contents, "application\/json"\)/);
   assert.equal(index.includes("phone-token"), false);
   assert.equal(/macros\/s\/[A-Za-z0-9_-]{8,}\/exec/.test(index), false);
   assert.equal(fs.readFileSync(path.join(__dirname, "Code.gs"), "utf8").includes("phone-token"), false);
