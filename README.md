@@ -27,3 +27,7 @@ The first visit needs a network connection. After that, the home-screen icon ope
 3. Keep the name MitoForge and tap Add.
 
 Installing does not move or clear your logs. They stay in this site's storage on this phone, under the same keys as before.
+
+## Private Drive sync
+
+Optional. From the profile menu, **Drive Sync** can copy workouts, meals, and check-ins to a folder in your own Google Drive so a coach who can read that Drive can see them. The copy goes only to a web app you deploy in your Google account. The URL and token stay in this browser. They are not in the repo and not in a data export. Steps are in [drive-sync/SETUP.md](drive-sync/SETUP.md).

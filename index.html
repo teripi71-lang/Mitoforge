@@ -971,6 +971,30 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
 })();
 
 </script>
+<script src="drive-sync/sync-client.js"></script>
+<script>
+(function () {
+  if (!window.createMitoForgeDriveSync || !window.mfStore) return;
+  var sync = window.createMitoForgeDriveSync({
+    backupText: function () { return window.mfBackupText(); },
+    storage: window.localStorage,
+    fetch: function (url, opts) { return window.fetch(url, opts); },
+    onChange: function () {
+      try { window.dispatchEvent(new Event("mf-sync-changed")); } catch (e) {}
+    }
+  });
+  window.mfSync = sync;
+  sync.installStore(window.mfStore);
+  function arm() { sync.armOpenSync(); }
+  if (document.readyState === "complete") arm();
+  else window.addEventListener("load", arm);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "hidden") return;
+    var pending = sync.onHidden();
+    if (pending && typeof pending.catch === "function") pending.catch(function () {});
+  });
+})();
+</script>
 <script>
 
 // Static data — no Babel needed
@@ -9128,6 +9152,114 @@ function TodayScreen({
   }, "Reset to the standard order"))));
 }
 
+function MfDriveSync({
+  onClose
+}) {
+  const saved = window.mfSync ? window.mfSync.get() : { url: "", token: "", enabled: false, lastOkAt: "", lastError: "", lastSavedAt: "" };
+  const [url, setUrl] = useState(saved.url || "");
+  const [token, setToken] = useState("");
+  const [cfg, setCfg] = useState(saved);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState("");
+  useEffect(() => {
+    const refresh = () => { if (window.mfSync) setCfg(window.mfSync.get()); };
+    window.addEventListener("mf-sync-changed", refresh);
+    return () => window.removeEventListener("mf-sync-changed", refresh);
+  }, []);
+  const inp = { width: "100%", boxSizing: "border-box", marginBottom: 10 };
+  const save = async () => {
+    setMsg("");
+    const result = window.mfSync.save({ url: url, token: token });
+    setCfg(window.mfSync.get());
+    if (!result.ok) { setMsg(result.error); return; }
+    setToken("");
+    setUrl(result.config.url);
+    setBusy("sync");
+    const sent = await window.mfSync.syncNow();
+    setBusy("");
+    setCfg(window.mfSync.get());
+    setMsg(sent && sent.skipped ? "Saved." : sent && sent.ok ? "Saved and synced." : "Saved. Sync did not finish: " + ((sent && sent.error) || "try Sync now"));
+  };
+  const test = async () => {
+    setBusy("test");
+    setMsg("");
+    const result = await window.mfSync.test({ url: url, token: token });
+    setBusy("");
+    setMsg(result && result.ok ? "Connected. Drive sync can reach your Web app." : (result && result.error) || "Could not connect");
+  };
+  const syncNow = async () => {
+    setBusy("sync");
+    setMsg("");
+    const result = await window.mfSync.syncNow();
+    setBusy("");
+    setCfg(window.mfSync.get());
+    if (result && result.skipped) setMsg("Save the URL and token first.");
+    else if (result && result.ok) setMsg(result.confirmed === false ? "Sent. The reply could not be read, but the Web app answered the test." : "Synced.");
+    else setMsg((result && result.error) || "Sync failed");
+  };
+  const turnOff = () => {
+    window.mfSync.disable();
+    setCfg(window.mfSync.get());
+    setMsg("Drive sync is off. Your URL and token stay on this device.");
+  };
+  const when = cfg.lastOkAt ? new Date(cfg.lastOkAt).toLocaleString() : "";
+  return React.createElement("div", {
+    className: "card mf-ai-panel",
+    style: { marginBottom: 16 }
+  }, React.createElement("div", {
+    style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }
+  }, React.createElement("b", {
+    style: { color: "var(--accent)" }
+  }, "Drive Sync"), React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: onClose
+  }, "✕ Close")), React.createElement("div", {
+    style: { fontSize: 13, color: "var(--label)", marginBottom: 10, lineHeight: 1.5 }
+  }, "Copies your workouts, meals, and check-ins to a private folder in your Google Drive. Nothing is sent until you save a Web app URL and token from the one-time setup."), React.createElement("label", null, "Web app URL"), React.createElement("input", {
+    value: url,
+    inputMode: "url",
+    autoComplete: "off",
+    spellCheck: false,
+    placeholder: "https://script.google.com/macros/s/…/exec",
+    onChange: e => setUrl(e.target.value),
+    style: inp
+  }), React.createElement("label", null, "Sync token"), React.createElement("input", {
+    type: "password",
+    autoComplete: "off",
+    spellCheck: false,
+    value: token,
+    placeholder: cfg.token ? "Saved on this device (type to replace)" : "paste the SYNC_TOKEN",
+    onChange: e => setToken(e.target.value),
+    style: inp
+  }), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", marginBottom: 10 }
+  }, "The URL and token stay in this browser only. They are not included in backups or sent to GitHub."), React.createElement("div", {
+    style: { display: "flex", gap: 8, flexWrap: "wrap" }
+  }, React.createElement("button", {
+    className: "btn btn-primary btn-sm",
+    onClick: save,
+    disabled: !!busy
+  }, "Save"), React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: test,
+    disabled: !!busy
+  }, busy === "test" ? "Testing…" : "Test"), React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: syncNow,
+    disabled: !!busy || !cfg.enabled
+  }, busy === "sync" ? "Syncing…" : "Sync now"), React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: turnOff,
+    disabled: !cfg.enabled
+  }, "Turn off")), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginTop: 8 }
+  }, cfg.enabled ? "Sync is on." : cfg.url ? "Sync is off." : "Not set up yet.", when ? " Last sync: " + when + "." : ""), cfg.lastError ? React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)", marginTop: 4 }
+  }, "Last error: " + cfg.lastError) : null, msg ? React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)", marginTop: 8 }
+  }, msg) : null);
+}
+
 function MfAISettings({
   onClose
 }) {
@@ -9349,6 +9481,7 @@ function App() {
   const [showBodyComp, setShowBodyComp] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [showAISet, setShowAISet] = useState(false);
+  const [showDriveSync, setShowDriveSync] = useState(false);
   useEffect(() => {
     window.mfOpenAISettings = () => {
       setShowAISet(true);
@@ -10083,6 +10216,18 @@ function App() {
     }
   }, "🤖 AI Coach (API key)"), React.createElement("div", {
     onClick: () => {
+      setShowDriveSync(true);
+      setShowProfileMenu(false);
+    },
+    style: {
+      padding: "8px 12px",
+      cursor: "pointer",
+      fontFamily: "var(--font-mono)",
+      fontSize: 12,
+      color: "var(--accent2)"
+    }
+  }, "☁ Drive Sync"), React.createElement("div", {
+    onClick: () => {
       setEditingProfile(activeProfile);
       setShowProfileMenu(false);
       setShowBodyComp(false);
@@ -10320,6 +10465,8 @@ function App() {
     onClose: () => setShowBackup(false)
   }), showAISet && React.createElement(MfAISettings, {
     onClose: () => setShowAISet(false)
+  }), showDriveSync && React.createElement(MfDriveSync, {
+    onClose: () => setShowDriveSync(false)
   }), showCoachPanel && activeProfile && React.createElement(MfGuard, {
     name: "Coach"
   }, React.createElement("div", {
