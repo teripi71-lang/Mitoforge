@@ -23860,6 +23860,14 @@ function NutritionTab({
   const [usdaLoading, setUsdaLoading] = useState(false);
   const [usdaErr, setUsdaErr] = useState("");
   const [usdaKeyDraft, setUsdaKeyDraft] = useState("");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanCode, setScanCode] = useState("");
+  const [scanMsg, setScanMsg] = useState("");
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanLive, setScanLive] = useState(false);
+  const scanVideoRef = useRef(null);
+  const scanStreamRef = useRef(null);
+  const scanTimerRef = useRef(null);
   const [selFood, setSelFood] = useState(null);
   const [serving, setServing] = useState("1");
   const [entryTime, setEntryTime] = useState(currentTimeStr());
@@ -24035,6 +24043,81 @@ function NutritionTab({
     }
     setUsdaLoading(false);
   };
+  // ---- Barcode lookup: USDA Branded first (matched on gtinUpc), then Open Food Facts. Both give values per 100 g.
+  const bcStop = () => {
+    if (scanTimerRef.current) { clearInterval(scanTimerRef.current); scanTimerRef.current = null; }
+    if (scanStreamRef.current) { try { scanStreamRef.current.getTracks().forEach(t => t.stop()); } catch (e) {} scanStreamRef.current = null; }
+    setScanLive(false);
+  };
+  const bcLookup = async raw => {
+    const code = String(raw || "").replace(/\D/g, "");
+    if (code.length < 8) { setScanMsg("Enter the full barcode number (8 to 14 digits)."); return; }
+    setScanBusy(true); setScanMsg(""); setSelFood(null);
+    const norm = c => String(c || "").replace(/^0+/, "");
+    const r = v => Math.round((v || 0) * 100) / 100;
+    try {
+      // 1) USDA Branded
+      try {
+        const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(code)}&dataType=Branded&pageSize=25&api_key=${encodeURIComponent(usdaKey())}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          const hit = (data.foods || []).find(f => norm(f.gtinUpc) === norm(code));
+          const food = hit && usdaParse(hit, true);
+          if (food) { setSelFood(food); setServing("1"); setScanMsg("Found in USDA: " + food.name.replace(" (USDA, per 100 g)", "")); setScanBusy(false); return; }
+        }
+      } catch (e) {}
+      // 2) Open Food Facts
+      try {
+        const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriments,serving_size`);
+        if (res.ok) {
+          const data = await res.json();
+          const pr = data && data.status === 1 ? data.product : null;
+          const nu = pr && pr.nutriments ? pr.nutriments : null;
+          if (nu) {
+            let cal = nu["energy-kcal_100g"];
+            if (cal == null && nu["energy_100g"] != null) cal = nu["energy_100g"] / 4.184;
+            if (cal != null && !isNaN(Number(cal))) {
+              const brand = pr.brands ? String(pr.brands).split(",")[0].trim() : "";
+              const food = {
+                name: `${pr.product_name || "Product " + code}${brand ? " — " + brand : ""} (Open Food Facts, per 100 g)`,
+                protein: r(Number(nu["proteins_100g"])), fat: r(Number(nu["fat_100g"])), carbs: r(Number(nu["carbohydrates_100g"])), fiber: r(Number(nu["fiber_100g"])), cal: Math.round(Number(cal)),
+                unit: "100 g", source: "openfoodfacts", fdcId: "off-" + code, branded: true,
+                servingText: pr.serving_size ? String(pr.serving_size) : ""
+              };
+              setSelFood(food); setServing("1"); setScanMsg("Found in Open Food Facts: " + (pr.product_name || code)); setScanBusy(false); return;
+            }
+          }
+        }
+      } catch (e) {}
+      setScanMsg("Barcode " + code + " was not found in USDA or Open Food Facts. Use Custom Entry and type it from the label.");
+    } finally { setScanBusy(false); }
+  };
+  const bcStart = async () => {
+    setScanOpen(true); setScanMsg("");
+    if (!("BarcodeDetector" in window) || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setScanMsg("Camera scanning is not supported in this browser. Type the barcode number below.");
+      return;
+    }
+    try {
+      const det = new window.BarcodeDetector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      scanStreamRef.current = stream; setScanLive(true);
+      const v = scanVideoRef.current;
+      if (v) { v.srcObject = stream; try { await v.play(); } catch (e) {} }
+      scanTimerRef.current = setInterval(async () => {
+        const vv = scanVideoRef.current;
+        if (!vv || vv.readyState < 2) return;
+        try {
+          const codes = await det.detect(vv);
+          if (codes && codes.length) { const c = codes[0].rawValue; bcStop(); setScanCode(c); bcLookup(c); }
+        } catch (e) {}
+      }, 400);
+    } catch (e) {
+      setScanMsg("Camera could not start (permission denied or no camera). Type the barcode number below.");
+    }
+  };
+  const bcClose = () => { bcStop(); setScanOpen(false); };
   const addFood = () => {
     if (!selFood) return;
     const s = parseFloat(serving) || 1,
@@ -25271,7 +25354,28 @@ All values are per the serving size you specify. Be accurate — use standard nu
       color: "var(--muted)",
       marginTop: 2
     }
-  }, "P:", f.protein, "g · F:", f.fat, "g · NC:", Math.max(0, (f.carbs || 0) - (f.fiber || 0)), "g · ", f.cal, "kcal")))), foodSearch.trim().length >= 2 && React.createElement("div", {
+  }, "P:", f.protein, "g · F:", f.fat, "g · NC:", Math.max(0, (f.carbs || 0) - (f.fiber || 0)), "g · ", f.cal, "kcal")))), React.createElement("div", {
+    className: "scan-panel",
+    style: { marginBottom: 10 }
+  }, !scanOpen ? React.createElement("button", {
+    className: "btn btn-sm",
+    style: { width: "100%", justifyContent: "center" },
+    onClick: bcStart
+  }, "📷 Scan barcode") : React.createElement("div", {
+    style: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: 10 }
+  }, React.createElement("video", {
+    ref: scanVideoRef, playsInline: true, muted: true,
+    style: { width: "100%", maxHeight: 220, background: "#000", borderRadius: 4, display: scanLive ? "block" : "none" }
+  }), React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 6 } }, React.createElement("input", {
+    type: "text", inputMode: "numeric", placeholder: "Or type barcode number", value: scanCode,
+    onChange: e => setScanCode(e.target.value), style: { flex: 1 }
+  }), React.createElement("button", {
+    className: "btn btn-sm", disabled: scanBusy, onClick: () => { bcStop(); bcLookup(scanCode); }
+  }, scanBusy ? "..." : "Look up"), React.createElement("button", {
+    className: "btn btn-sm", onClick: bcClose
+  }, "✕")), scanMsg && React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginTop: 6 }
+  }, scanMsg))), foodSearch.trim().length >= 2 && React.createElement("div", {
     className: "usda-panel",
     style: { marginBottom: 10 }
   }, React.createElement("button", {
