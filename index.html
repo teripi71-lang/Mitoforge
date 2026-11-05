@@ -23856,6 +23856,10 @@ function NutritionTab({
   const [expandedDay, setExpandedDay] = useState(null);
   const [showMoreDays, setShowMoreDays] = useState(false);
   const [foodSearch, setFoodSearch] = useState("");
+  const [usdaRes, setUsdaRes] = useState(null);
+  const [usdaLoading, setUsdaLoading] = useState(false);
+  const [usdaErr, setUsdaErr] = useState("");
+  const [usdaKeyDraft, setUsdaKeyDraft] = useState("");
   const [selFood, setSelFood] = useState(null);
   const [serving, setServing] = useState("1");
   const [entryTime, setEntryTime] = useState(currentTimeStr());
@@ -23994,6 +23998,43 @@ function NutritionTab({
   });
   const allF = [...COMMON_FOODS, ...customFoods];
   const filtF = foodSearch ? allF.filter(f => f.name.toLowerCase().includes(foodSearch.toLowerCase())) : allF;
+  // ---- USDA FoodData Central search. Values from USDA are per 100 g. Nutrients are read by nutrient id: 1003 protein, 1004 fat, 1005 carbs, 1079 fiber, 1008 energy (kcal), 1062 energy (kJ).
+  const usdaKey = () => { try { return localStorage.getItem("mitoforge_usda_key") || "DEMO_KEY"; } catch (e) { return "DEMO_KEY"; } };
+  const usdaHasOwnKey = () => { try { return !!localStorage.getItem("mitoforge_usda_key"); } catch (e) { return false; } };
+  const usdaParse = (f, brandedFlag) => {
+    const n = {};
+    (f.foodNutrients || []).forEach(x => { if (x && x.nutrientId != null && typeof x.value === "number") n[x.nutrientId] = x.value; });
+    let cal = n[1008];
+    if (cal == null && n[1062] != null) cal = n[1062] / 4.184;
+    if (cal == null) return null;
+    const r = v => Math.round((v || 0) * 100) / 100;
+    const brand = f.brandName || f.brandOwner || "";
+    return {
+      name: `${f.description}${brand ? " — " + brand : ""} (USDA, per 100 g)`,
+      protein: r(n[1003]), fat: r(n[1004]), carbs: r(n[1005]), fiber: r(n[1079]), cal: Math.round(cal),
+      unit: "100 g", source: "usda", fdcId: f.fdcId, branded: !!brandedFlag,
+      servingText: brandedFlag && f.householdServingFullText ? `${f.householdServingFullText}${f.servingSize ? " = " + Math.round(f.servingSize * 10) / 10 + " " + String(f.servingSizeUnit || "g").toLowerCase().replace("grm", "g") : ""}` : ""
+    };
+  };
+  const searchUsda = async () => {
+    const q = foodSearch.trim();
+    if (q.length < 2) return;
+    setUsdaLoading(true); setUsdaErr(""); setUsdaRes(null);
+    const get = async types => {
+      const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&dataType=${encodeURIComponent(types)}&pageSize=8&api_key=${encodeURIComponent(usdaKey())}`;
+      const res = await fetch(url);
+      if (!res.ok) { const e = new Error("http " + res.status); e.status = res.status; throw e; }
+      const data = await res.json();
+      return (data.foods || []).map(f => usdaParse(f, types === "Branded")).filter(Boolean);
+    };
+    try {
+      const [whole, packaged] = await Promise.all([get("Foundation,SR Legacy"), get("Branded")]);
+      setUsdaRes({ whole, packaged });
+    } catch (e) {
+      setUsdaErr(e && e.status === 429 ? "USDA says too many searches. The shared test key allows 30 per hour and 50 per day. Add your own free key below." : e && e.status ? `USDA search failed (${e.status}).` : "Could not reach USDA from the app (offline or blocked).");
+    }
+    setUsdaLoading(false);
+  };
   const addFood = () => {
     if (!selFood) return;
     const s = parseFloat(serving) || 1,
@@ -24004,6 +24045,7 @@ function NutritionTab({
       time: entryTime,
       name: selFood.name,
       serving: s,
+      ...(selFood.unit ? { unit: selFood.unit, source: selFood.source } : {}),
       protein: Math.round(selFood.protein * s * 10) / 10,
       fat: Math.round(selFood.fat * s * 10) / 10,
       carbs: Math.round((selFood.carbs || 0) * s * 10) / 10,
@@ -25229,7 +25271,47 @@ All values are per the serving size you specify. Be accurate — use standard nu
       color: "var(--muted)",
       marginTop: 2
     }
-  }, "P:", f.protein, "g · F:", f.fat, "g · NC:", Math.max(0, (f.carbs || 0) - (f.fiber || 0)), "g · ", f.cal, "kcal")))), selFood && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "P:", f.protein, "g · F:", f.fat, "g · NC:", Math.max(0, (f.carbs || 0) - (f.fiber || 0)), "g · ", f.cal, "kcal")))), foodSearch.trim().length >= 2 && React.createElement("div", {
+    className: "usda-panel",
+    style: { marginBottom: 10 }
+  }, React.createElement("button", {
+    className: "btn btn-sm",
+    style: { width: "100%", justifyContent: "center", marginBottom: 6 },
+    disabled: usdaLoading,
+    onClick: searchUsda
+  }, usdaLoading ? "Searching USDA..." : "🔎 Search USDA food database"), usdaErr && React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--red, #ef4444)", marginBottom: 6 }
+  }, usdaErr), usdaRes && [["Whole foods", usdaRes.whole], ["Packaged foods", usdaRes.packaged]].map(([label, list]) => React.createElement("div", {
+    key: label,
+    style: { marginBottom: 6 }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", marginBottom: 3 }
+  }, label, " · values per 100 g"), React.createElement("div", {
+    style: { maxHeight: 200, overflowY: "auto", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }
+  }, list.length === 0 ? React.createElement("div", {
+    style: { padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }
+  }, "No results.") : list.map((f, i) => React.createElement("div", {
+    key: f.fdcId + "-" + i,
+    onClick: () => { setSelFood(f); setServing("1"); },
+    style: { padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #1f2228", background: selFood?.fdcId === f.fdcId ? "#1e1018" : "transparent" }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text)" }
+  }, f.name.replace(" (USDA, per 100 g)", "")), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", marginTop: 2 }
+  }, "P:", f.protein, "g · F:", f.fat, "g · NC:", Math.max(0, Math.round((f.carbs - f.fiber) * 100) / 100), "g · ", f.cal, "kcal", f.servingText ? " · serving: " + f.servingText : "")))))), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", marginTop: 4 }
+  }, usdaHasOwnKey() ? "Using your USDA key." : "Using the shared test key (30 searches/hour, 50/day).", " Source: USDA FoodData Central."), !usdaHasOwnKey() && React.createElement("div", {
+    style: { display: "flex", gap: 6, marginTop: 4 }
+  }, React.createElement("input", {
+    type: "text",
+    placeholder: "Paste your free USDA key",
+    value: usdaKeyDraft,
+    onChange: e => setUsdaKeyDraft(e.target.value),
+    style: { flex: 1 }
+  }), React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => { const k = usdaKeyDraft.trim(); if (!k) return; try { localStorage.setItem("mitoforge_usda_key", k); } catch (e) {} setUsdaKeyDraft(""); setUsdaErr(""); }
+  }, "Save"))), selFood && React.createElement(React.Fragment, null, React.createElement("div", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 11,
@@ -25243,7 +25325,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
     style: {
       color: "var(--text)"
     }
-  }, selFood.name)), React.createElement("div", {
+  }, selFood.name), selFood.unit ? " — 1 serving = " + selFood.unit + " (enter 1.5 for 150 g)" : ""), React.createElement("div", {
     className: "form-row form-row-2"
   }, React.createElement("div", null, React.createElement("label", null, "Servings"), React.createElement("input", {
     type: "number",
