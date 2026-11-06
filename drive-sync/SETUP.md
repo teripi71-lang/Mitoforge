@@ -97,6 +97,20 @@ Apps Script does not update a deployment by itself.
 
 The `/exec` URL stays the same. You do not paste a new URL into the phone.
 
+## The inbox (optional): getting entries from Drive into the phone
+
+Anything that can write a file into the `Mitoforge` Drive folder (your AI coach, another tool, you) can drop entries into the app by creating a file named `MitoForge inbox.json`:
+
+```json
+{ "app": "MitoForge",
+  "keys": { "mf_<profileId>_log": [ { "id": 1793971500000, "type": "cardio", "date": "2026-11-06" } ] } }
+```
+
+- Only keys that start with `mf_` and hold a list are used. Settings, schedules and plans are ignored.
+- Each entry needs a unique `id` (the app uses a millisecond timestamp). An entry with the same `id` as one the phone already has is treated as an edit, and the phone keeps whichever version has more filled-in fields.
+- On the next sync the phone downloads the latest backup with the inbox entries added, merges it in, and uploads. After that upload the script removes from the inbox every entry the phone now has. When the inbox is empty it is renamed `MitoForge inbox done <date>.json`.
+- The stored `MitoForge sync (latest).json` is never edited by the inbox. Nothing is ever deleted.
+- This needs the script redeployed as a **New version** (see above).
 ## Deleting entries
 
 Deleting an entry on the phone is remembered. At the next sync the phone records the deletion in a synced list called `mf_sync_tombstones`, uploads it, and the entry is removed from Drive's copy and from any other phone that syncs. Deletion records are kept for 180 days.
