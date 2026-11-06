@@ -978,6 +978,7 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
   var sync = window.createMitoForgeDriveSync({
     backupText: function () { return window.mfBackupText(); },
     storage: window.localStorage,
+    store: window.mfStore, // merged keys are written through the app store (works in local and db mode)
     fetch: function (url, opts) { return window.fetch(url, opts); },
     onChange: function () {
       try { window.dispatchEvent(new Event("mf-sync-changed")); } catch (e) {}
