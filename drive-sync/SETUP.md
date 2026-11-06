@@ -97,6 +97,15 @@ Apps Script does not update a deployment by itself.
 
 The `/exec` URL stays the same. You do not paste a new URL into the phone.
 
+## Deleting entries
+
+Deleting an entry on the phone is remembered. At the next sync the phone records the deletion in a synced list called `mf_sync_tombstones`, uploads it, and the entry is removed from Drive's copy and from any other phone that syncs. Deletion records are kept for 180 days.
+
+- Only entries with an `id` are tracked (all workouts, food, check-ins and similar have one).
+- If more than 25 entries disappear from one list between syncs (for example after **Restore from a backup**), the app treats it as a reset, not as deletions, and brings the entries back from Drive instead of wiping them everywhere.
+- If sync is turned on for the first time, nothing is treated as deleted until one sync has finished.
+- After a sync changes what is stored, a "Synced changes from Drive. Tap to refresh." bar appears. The screens only read their data when the app opens, so tap it to see the changes.
+
 ## What never gets uploaded
 
 The phone sends the same backup as **Back Up My Data**: every value whose name starts with `mf_`. Your AI coach API key and this sync token are stored under different names and are not in that backup. The script also drops the token before it writes the Drive file.
