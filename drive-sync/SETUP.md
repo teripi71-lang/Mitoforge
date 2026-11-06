@@ -111,6 +111,14 @@ Anything that can write a file into the `Mitoforge` Drive folder (your AI coach,
 - On the next sync the phone downloads the latest backup with the inbox entries added, merges it in, and uploads. After that upload the script removes from the inbox every entry the phone now has. When the inbox is empty it is renamed `MitoForge inbox done <date>.json`.
 - The stored `MitoForge sync (latest).json` is never edited by the inbox. Nothing is ever deleted.
 - This needs the script redeployed as a **New version** (see above).
+## Deleting entries
+
+Deleting an entry on the phone is remembered. At the next sync the phone records the deletion in a synced list called `mf_sync_tombstones`, uploads it, and the entry is removed from Drive's copy and from any other phone that syncs. Deletion records are kept for 180 days.
+
+- Only entries with an `id` are tracked (all workouts, food, check-ins and similar have one).
+- If more than 25 entries disappear from one list between syncs (for example after **Restore from a backup**), the app treats it as a reset, not as deletions, and brings the entries back from Drive instead of wiping them everywhere.
+- If sync is turned on for the first time, nothing is treated as deleted until one sync has finished.
+- After a sync changes what is stored, a "Synced changes from Drive. Tap to refresh." bar appears. The screens only read their data when the app opens, so tap it to see the changes.
 
 ## What never gets uploaded
 

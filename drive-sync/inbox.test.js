@@ -175,3 +175,39 @@ test("end to end with the phone's real merge: inbox entry reaches the phone once
 test("Code.gs still never contains a token value", function () {
   assert.equal(SOURCE.includes("phone-token"), false);
 });
+
+test("inbox + deletion sync together: an inbox entry arrives, then deleting it on the phone sticks", async function () {
+  const s = loadScript([
+    ["MitoForge sync (latest).json", latestText({ [P + "log"]: JSON.stringify(phoneLog) })],
+    ["MitoForge inbox.json", inboxText({ [P + "log"]: [newEntry] })]
+  ]);
+  const data = { [P + "log"]: JSON.stringify(phoneLog) };
+  const storage = {
+    getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+    setItem: function (k, v) { data[k] = String(v); },
+    removeItem: function (k) { delete data[k]; }
+  };
+  const sync = client.create({
+    backupText: function () {
+      const keys = {};
+      Object.keys(data).forEach(function (k) { if (k.indexOf("mf_") === 0) keys[k] = data[k]; });
+      return JSON.stringify({ app: "MitoForge", schema: 1, exportedAt: "x", keys: keys });
+    },
+    storage: storage,
+    setTimer: function () { return 1; }, clearTimer: function () {},
+    fetch: async function (url, opts) {
+      const out = (opts && opts.method === "POST")
+        ? s.ctx.doPost({ postData: { contents: opts.body } })
+        : s.ctx.doGet({ parameter: { token: "tok", download: String(url).indexOf("download=latest") >= 0 ? "latest" : undefined } });
+      return { type: "basic", text: async function () { return out.text; } };
+    }
+  });
+  storage.setItem(client.CFG_KEY, JSON.stringify({ url: "https://example.com/exec", token: "tok", enabled: true, lastOkAt: "", lastError: "", lastSavedAt: "" }));
+  await sync.syncNow();
+  assert.deepEqual(JSON.parse(data[P + "log"]).map(function (e) { return e.id; }), [1, 2], "inbox entry reached the phone");
+  assert.equal(s.files.some(function (f) { return f.name === "MitoForge inbox.json"; }), false, "inbox used up");
+  data[P + "log"] = JSON.stringify(phoneLog);       // delete the new entry on the phone
+  await sync.syncNow();
+  await sync.syncNow();
+  assert.deepEqual(JSON.parse(data[P + "log"]).map(function (e) { return e.id; }), [1], "stays deleted");
+});

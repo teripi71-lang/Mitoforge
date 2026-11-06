@@ -982,6 +982,20 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
     fetch: function (url, opts) { return window.fetch(url, opts); },
     onChange: function () {
       try { window.dispatchEvent(new Event("mf-sync-changed")); } catch (e) {}
+    },
+    // The screens read their data once at load, so tell the user when a sync
+    // changed what is stored and let them reload to see it.
+    onMerged: function (stats) {
+      try {
+        if (document.getElementById("mf-sync-banner")) return;
+        var b = document.createElement("button");
+        b.id = "mf-sync-banner";
+        b.type = "button";
+        b.textContent = "Synced changes from Drive. Tap to refresh.";
+        b.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;padding:12px 14px;border:1px solid #888;border-radius:6px;background:#111;color:#fff;font:13px monospace;text-align:center";
+        b.onclick = function () { location.reload(); };
+        document.body.appendChild(b);
+      } catch (e) {}
     }
   });
   window.mfSync = sync;
