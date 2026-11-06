@@ -18,6 +18,10 @@
   var DEBOUNCE_MS = 15000;
   var OPEN_DELAY_MS = 2000;
   var KEEPALIVE_MAX = 60000;
+  var TOMB_KEY = "mf_sync_tombstones";          // synced: which entries were deleted, by key and id
+  var SNAP_KEY = "mitoforge_sync_snapshot";     // phone only (not mf_): entry ids at the last good sync
+  var TOMB_KEEP_DAYS = 180;
+  var BULK_DELETE_LIMIT = 25;                   // more than this vanishing at once is a restore/reset, not a delete
 
   function emptyConfig() {
     return { url: "", token: "", enabled: false, lastOkAt: "", lastError: "", lastSavedAt: "" };
@@ -163,6 +167,131 @@
     return { keys: merged, stats: stats };
   }
 
+  /* ---------- deletions (tombstones; pure, also used by node tests) ---------- */
+
+  // Only entries with an id can be tombstoned. Entries without one are
+  // identified by their content, and a deleted-then-retyped entry would
+  // otherwise be blocked forever.
+  function entryIds(arr) {
+    var out = [];
+    arr.forEach(function (e) {
+      if (e && typeof e === "object" && !Array.isArray(e) && e.id !== null && e.id !== undefined) out.push("id:" + String(e.id));
+    });
+    return out;
+  }
+
+  function parseList(str) {
+    try { var v = JSON.parse(str); return Array.isArray(v) ? v : null; }
+    catch (err) { return null; }
+  }
+
+  function parseTombs(str) {
+    try {
+      var v = JSON.parse(str);
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      var out = {};
+      Object.keys(v).forEach(function (k) {
+        if (v[k] && typeof v[k] === "object" && !Array.isArray(v[k])) out[k] = v[k];
+      });
+      return out;
+    } catch (err) { return {}; }
+  }
+
+  // Snapshot of entry ids per list key, taken after a good sync.
+  function takeSnapshot(keys) {
+    var snap = {};
+    Object.keys(keys).forEach(function (k) {
+      if (k === TOMB_KEY || k.indexOf("mf_") !== 0) return;
+      var list = parseList(keys[k]);
+      if (list) snap[k] = entryIds(list);
+    });
+    return snap;
+  }
+
+  // Entries that were in the snapshot but are gone from the phone now.
+  // A key that lost more than BULK_DELETE_LIMIT entries at once is treated
+  // as a restore or reset and is not turned into deletions.
+  function detectDeletions(localKeys, snapshot, nowIso) {
+    var tombs = {};
+    var skipped = [];
+    Object.keys(snapshot || {}).forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(localKeys, k)) return;
+      var list = parseList(localKeys[k]);
+      if (!list) return;
+      var have = {};
+      entryIds(list).forEach(function (id) { have[id] = true; });
+      var gone = snapshot[k].filter(function (id) { return !have[id]; });
+      if (!gone.length) return;
+      if (gone.length > BULK_DELETE_LIMIT) { skipped.push(k); return; }
+      tombs[k] = {};
+      gone.forEach(function (id) { tombs[k][id] = nowIso; });
+    });
+    return { tombs: tombs, skipped: skipped };
+  }
+
+  function unionTombs(a, b) {
+    var out = {};
+    [a, b].forEach(function (t) {
+      Object.keys(t || {}).forEach(function (k) {
+        out[k] = out[k] || {};
+        Object.keys(t[k]).forEach(function (id) {
+          if (!out[k][id] || String(t[k][id]) < String(out[k][id])) out[k][id] = t[k][id];
+        });
+      });
+    });
+    return out;
+  }
+
+  function pruneTombs(tombs, nowIso, keepDays) {
+    var cutoff = new Date(new Date(nowIso).getTime() - keepDays * 86400000).toISOString();
+    var out = {};
+    Object.keys(tombs).forEach(function (k) {
+      Object.keys(tombs[k]).forEach(function (id) {
+        if (String(tombs[k][id]) >= cutoff) { out[k] = out[k] || {}; out[k][id] = tombs[k][id]; }
+      });
+    });
+    return out;
+  }
+
+  // Drop tombstoned entries from every list key. Returns how many went.
+  function applyTombs(keys, tombs) {
+    var removed = 0;
+    Object.keys(tombs).forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(keys, k)) return;
+      var list = parseList(keys[k]);
+      if (!list) return;
+      var kept = list.filter(function (e) {
+        var id = entryIds([e])[0];
+        return !(id && tombs[k][id]);
+      });
+      if (kept.length !== list.length) {
+        removed += list.length - kept.length;
+        keys[k] = JSON.stringify(kept);
+      }
+    });
+    return removed;
+  }
+
+  // Full merge used by the sync: union of both sides, minus every deleted
+  // entry. localKeys / remoteKeys are key maps; snapshot is the last-sync
+  // id snapshot (may be empty on the first sync).
+  function mergeWithDeletions(localKeys, remoteKeys, snapshot, nowIso) {
+    var local = {}, remote = {};
+    Object.keys(localKeys).forEach(function (k) { if (k !== TOMB_KEY) local[k] = localKeys[k]; });
+    Object.keys(remoteKeys).forEach(function (k) { if (k !== TOMB_KEY) remote[k] = remoteKeys[k]; });
+    var det = detectDeletions(local, snapshot, nowIso);
+    var tombs = unionTombs(parseTombs(localKeys[TOMB_KEY]), det.tombs);
+    tombs = unionTombs(tombs, parseTombs(remoteKeys[TOMB_KEY]));
+    tombs = pruneTombs(tombs, nowIso, TOMB_KEEP_DAYS);
+    var r = mergeKeyMaps(local, remote);
+    var removed = applyTombs(r.keys, tombs);
+    if (Object.keys(tombs).length || Object.prototype.hasOwnProperty.call(localKeys, TOMB_KEY)) r.keys[TOMB_KEY] = JSON.stringify(tombs);
+    r.stats.deletedByTombstone = removed;
+    r.stats.newDeletions = Object.keys(det.tombs).reduce(function (n, k) { return n + Object.keys(det.tombs[k]).length; }, 0);
+    r.stats.bulkSkipped = det.skipped;
+    return r;
+  }
+
   function createMitoForgeDriveSync(deps) {
     if (!deps || typeof deps.backupText !== "function" || !deps.storage || typeof deps.fetch !== "function") {
       throw new Error("Drive sync is missing backup, storage, or fetch");
@@ -296,22 +425,49 @@
 
     // Merge a downloaded backup into the phone's store. Only keys whose
     // merged value differs are written, and nothing is deleted.
+    function readSnapshot() {
+      try {
+        var raw = deps.storage.getItem(SNAP_KEY);
+        var o = raw ? JSON.parse(raw) : null;
+        return o && typeof o === "object" && !Array.isArray(o) ? o : null;
+      } catch (err) { return null; }
+    }
+
+    // Turn "was in the last good sync, gone now" into tombstones stored in
+    // the phone's own data, so they upload even if the download fails.
+    function recordDeletions() {
+      var snapshot = readSnapshot();
+      if (!snapshot) return;
+      var localBody = JSON.parse(deps.backupText());
+      if (!localBody || !localBody.keys) return;
+      var det = detectDeletions(localBody.keys, snapshot, now().toISOString());
+      if (!Object.keys(det.tombs).length) return;
+      var tombs = unionTombs(parseTombs(localBody.keys[TOMB_KEY]), det.tombs);
+      merging = true;
+      try { appStore.setItem(TOMB_KEY, JSON.stringify(tombs)); }
+      finally { merging = false; }
+    }
+
     function applyMerge(backup) {
       var localText = deps.backupText();
       var localBody = JSON.parse(localText);
       if (!localBody || !localBody.keys || typeof localBody.keys !== "object") {
         throw new Error("Could not read MitoForge data");
       }
-      var r = mergeKeyMaps(localBody.keys, backup.keys || {});
+      var snapshot = readSnapshot(); // none on the first sync: nothing is treated as deleted yet
+      var r = mergeWithDeletions(localBody.keys, backup.keys || {}, snapshot || {}, now().toISOString());
+      var changed = 0;
       merging = true;
       try {
         Object.keys(r.keys).forEach(function (k) {
-          if (r.keys[k] !== localBody.keys[k]) appStore.setItem(k, r.keys[k]);
+          if (r.keys[k] !== localBody.keys[k]) { appStore.setItem(k, r.keys[k]); changed++; }
         });
       } finally {
         merging = false;
       }
+      r.stats.keysChanged = changed;
       if (typeof deps.onChange === "function") deps.onChange();
+      if (changed && typeof deps.onMerged === "function") deps.onMerged(r.stats);
       return r.stats;
     }
 
@@ -335,6 +491,9 @@
 
     async function run(cfg, opts) {
       var mergeStats = null;
+      if (!opts.skipPull) {
+        try { recordDeletions(); } catch (err) {}
+      }
       if (!opts.skipPull) {
         var pulled = await pullLatest(cfg);
         if (pulled.ok && pulled.backup) {
@@ -372,6 +531,7 @@
         }
         var stamped = now().toISOString();
         remember({ lastOkAt: stamped, lastSavedAt: stamped, lastError: "" });
+        try { deps.storage.setItem(SNAP_KEY, JSON.stringify(takeSnapshot(payload.keys))); } catch (err) {}
         return { ok: true, savedAt: stamped, confirmed: false, merged: mergeStats };
       }
       if (!posted.ok) {
@@ -380,6 +540,7 @@
       }
       remember({ lastOkAt: now().toISOString(), lastSavedAt: posted.savedAt || "", lastError: "" });
       if (mergeStats) posted.merged = mergeStats;
+      try { deps.storage.setItem(SNAP_KEY, JSON.stringify(takeSnapshot(payload.keys))); } catch (err) {}
       return posted;
     }
 
@@ -501,7 +662,12 @@
     resolveConflict: resolveConflict,
     mergeEntryArrays: mergeEntryArrays,
     mergeKeyValue: mergeKeyValue,
-    mergeKeyMaps: mergeKeyMaps
+    mergeKeyMaps: mergeKeyMaps,
+    mergeWithDeletions: mergeWithDeletions,
+    detectDeletions: detectDeletions,
+    takeSnapshot: takeSnapshot,
+    TOMB_KEY: TOMB_KEY,
+    SNAP_KEY: SNAP_KEY
   };
   root.createMitoForgeDriveSync = createMitoForgeDriveSync;
   root.MitoForgeSyncClient = api;
