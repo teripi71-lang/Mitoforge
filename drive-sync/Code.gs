@@ -78,6 +78,20 @@ function syncParsePlan(text) {
   try { return JSON.parse(text); }
   catch (err) { return text; }
 }
+
+// Validate the stored latest file and shape it for download. The phone
+// merges this with its own data instead of replacing it (see the
+// two-way merge sync in drive-sync/sync-client.js).
+function syncBackupDownload_(fileText) {
+  if (fileText == null || fileText === "") return { ok: false, error: "No sync file yet" };
+  var backup;
+  try { backup = JSON.parse(fileText); }
+  catch (err) { return { ok: false, error: "Sync file is not JSON" }; }
+  if (!backup || backup.app !== "MitoForge" || !backup.keys || typeof backup.keys !== "object" || Array.isArray(backup.keys)) {
+    return { ok: false, error: "Sync file is not a MitoForge backup" };
+  }
+  return { ok: true, backup: backup };
+}
 // PURE_END
 
 function doPost(e) {
@@ -111,6 +125,11 @@ function doGet(e) {
     if (!auth.ok) return syncJson_(auth);
     var out = { ok: true };
     var folder = syncFolder_();
+    if (e && e.parameter && e.parameter.download === "latest") {
+      var latest = syncFind_(folder, syncLatestName());
+      if (!latest) return syncJson_({ ok: false, error: "No sync file yet" });
+      return syncJson_(syncBackupDownload_(latest.getBlob().getDataAsString("UTF-8")));
+    }
     var plan = syncFind_(folder, syncPlanName());
     if (plan) out.plan = syncParsePlan(plan.getBlob().getDataAsString("UTF-8"));
     return syncJson_(out);
