@@ -13554,7 +13554,7 @@ const HYB_SECTION_NAMES = {
   cooldown: "Cool-down"
 };
 const HYB_SECTION_SUBS = {
-  warmup: "before the work, unless you move it",
+  warmup: "before the work",
   finisher: "kept out of the pairs",
   cooldown: "after the work, unless you move it"
 };
@@ -13671,7 +13671,9 @@ function HybSectionCard({
   moveTargets,
   onMoveTo,
   footer,
-  empty
+  empty,
+  simple,
+  onRemove
 }) {
   const fv = id => fin[id] || {};
   const setF = (id, patch) => setFin(x => ({
@@ -13739,7 +13741,48 @@ function HybSectionCard({
     color: "var(--muted)",
     fontFamily: "var(--font-mono)"
   };
-  const groups = [...new Set(HYB_ITEM_PRESETS.map(p => p.grp))];
+  const pickable = p => !simple || p.kind === "min";
+  const groups = [...new Set(HYB_ITEM_PRESETS.filter(pickable).map(p => p.grp))];
+  const edOn = !simple && ed;
+  const simpleRow = (f, legacy) => React.createElement("div", {
+    key: f.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "8px 0",
+      borderTop: "1px solid var(--border)"
+    }
+  }, React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      fontFamily: "var(--font-head)",
+      fontSize: 14,
+      fontWeight: 700
+    }
+  }, f.label), legacy ? React.createElement("span", {
+    style: subS
+  }, "carry or Zone 2: not used here") : React.createElement(React.Fragment, null, React.createElement("input", {
+    type: "number",
+    min: "0",
+    inputMode: "decimal",
+    placeholder: f.hint || "min",
+    "aria-label": `${f.label} minutes`,
+    style: {
+      width: 84
+    },
+    value: fv(f.id).min || "",
+    onChange: e => setF(f.id, {
+      min: e.target.value
+    })
+  }), React.createElement("span", {
+    style: subS
+  }, "min")), React.createElement("button", {
+    className: "btn btn-ghost btn-sm",
+    "aria-label": `Remove ${f.label}`,
+    onClick: () => del(f.id)
+  }, "✕"));
   const z2Opts = ["Incline Treadmill", "Stationary Bike", "Rowing Machine", "Recumbent Bike", "Elliptical", "Pack Walk"];
   const kindLabel = k => k === "carry" ? "Loaded carry" : k === "z2" ? "Zone 2 block" : "Timed item (minutes)";
   return React.createElement("div", {
@@ -13751,14 +13794,18 @@ function HybSectionCard({
     }
   }, React.createElement("span", null, title, " ", React.createElement("span", {
     style: subS
-  }, "· ", sub)), React.createElement("button", {
+  }, "· ", sub)), simple ? onRemove && React.createElement("button", {
+    className: "btn btn-ghost btn-sm",
+    "aria-label": `Remove the ${title.toLowerCase()}`,
+    onClick: onRemove
+  }, "✕") : React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     style: {
       whiteSpace: "nowrap",
       flexShrink: 0
     },
     onClick: () => setEd(x => !x)
-  }, ed ? "▲ Done" : "▼ Edit")), ed && React.createElement("div", {
+  }, ed ? "▲ Done" : "▼ Edit")), edOn && React.createElement("div", {
     style: panel
   }, items.map((f, fi) => React.createElement("div", {
     key: f.id,
@@ -13881,7 +13928,7 @@ function HybSectionCard({
       color: "var(--muted)",
       marginBottom: 8
     }
-  }, empty || `No ${title.toLowerCase()} items yet.`), !ed && React.createElement("select", {
+  }, empty || `No ${title.toLowerCase()} items yet.`), !edOn && React.createElement("select", {
     value: "",
     "aria-label": `Add a ${title.toLowerCase()} item`,
     style: {
@@ -13898,10 +13945,11 @@ function HybSectionCard({
   }, "＋ Add a ", title.toLowerCase(), " item..."), groups.map(g => React.createElement("optgroup", {
     key: g,
     label: g
-  }, HYB_ITEM_PRESETS.map((p, i) => p.grp === g ? React.createElement("option", {
+  }, HYB_ITEM_PRESETS.map((p, i) => p.grp === g && pickable(p) ? React.createElement("option", {
     key: p.label,
     value: i
   }, p.label) : null)))), items.map(f => {
+    if (simple && f.kind !== "min") return null;
     if (f.kind === "carry") return Array.from({
       length: f.sets || 2
     }, (_, i) => React.createElement("div", {
@@ -14040,7 +14088,7 @@ function HybSectionCard({
       }))));
     }
     return null;
-  }), items.some(f => f.kind === "min" && !hybFields(f).length) && React.createElement("div", {
+  }), simple && items.filter(f => f.kind === "min").map(f => simpleRow(f, false)), simple && items.filter(f => f.kind !== "min").map(f => simpleRow(f, true)), !simple && items.some(f => f.kind === "min" && !hybFields(f).length) && React.createElement("div", {
     className: "form-row form-row-2"
   }, items.filter(f => f.kind === "min" && !hybFields(f).length).map(f => React.createElement("div", {
     key: f.id
@@ -14052,7 +14100,7 @@ function HybSectionCard({
     onChange: e => setF(f.id, {
       min: e.target.value
     })
-  })))), items.filter(f => f.kind === "min" && hybFields(f).length).map(f => {
+  })))), items.filter(f => !simple && f.kind === "min" && hybFields(f).length).map(f => {
     const fl = hybFields(f),
       v = fv(f.id);
     return React.createElement("div", {
@@ -14521,6 +14569,7 @@ function HybridSession({
       i = o.indexOf(tok),
       j = i + dir;
     if (i < 0 || j < 0 || j >= o.length) return;
+    if (tok === "warmup" || o[j] === "warmup") return;
     [o[i], o[j]] = [o[j], o[i]];
     setOrder(o);
   };
@@ -14773,7 +14822,7 @@ function HybridSession({
         paddingTop: 10,
         marginTop: 10
       }
-    }, oi > 0 && React.createElement("button", {
+    }, oi > (order[0] === "warmup" ? 1 : 0) && React.createElement("button", {
       className: "btn btn-secondary btn-sm",
       onClick: () => moveSec(w, -1)
     }, "↑ Move section up"), oi < order.length - 1 && React.createElement("button", {
@@ -14812,9 +14861,14 @@ function HybridSession({
       setFin: setFin,
       ed: ed,
       setEd: setEd,
-      moveTargets: Object.keys(HYB_SECTION_NAMES).filter(t => t !== w).map(t => [t, "→ " + HYB_SECTION_NAMES[t]]),
+      moveTargets: Object.keys(HYB_SECTION_NAMES).filter(t => t !== w && t !== "warmup").map(t => [t, "→ " + HYB_SECTION_NAMES[t]]),
       onMoveTo: (id, t) => moveItemTo(w, id, t),
-      footer: footer
+      footer: footer,
+      ...(w === "warmup" ? {
+        simple: true,
+        onRemove: () => dropSec("warmup"),
+        empty: "No warm-up yet. Pick an exercise below, then enter the minutes."
+      } : {})
     });
   };
   return React.createElement("div", null, React.createElement("div", {
