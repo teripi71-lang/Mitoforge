@@ -1156,7 +1156,7 @@ const DEFAULT_STR_EX = ["One-Arm DB Bench","Front Foot Elevated Split Squat","Ch
 const DEFAULT_KB_EX  = ["KB Snatch","KB Clean","KB Front Squat","Single-Arm Overhead Press","KB Swing"];
 
 // DEFAULT_CRD_EX
-const DEFAULT_CRD_EX = ["Recumbent Bike","Pack Walk","Stationary Bike","Rowing Machine","Elliptical","Stair Stepper","Yoga","Incline Treadmill"];
+const DEFAULT_CRD_EX = ["Recumbent Bike","Pack Walk","Stationary Bike","Rowing Machine","Elliptical","Stair Stepper","Yoga","Incline Treadmill","Sauna"];
 
 const GLP_GUIDE_SECTIONS = [
   {
@@ -5278,7 +5278,7 @@ function mfDeloadSet(id) {
     setsPct: n(s.setsPct, 50, 10, 100),
     repsPct: n(s.repsPct, 67, 30, 100),
     minDays: n(s.minDays, 3, 1, 7),
-    weeks: Array.isArray(s.weeks) ? s.weeks : [],
+    weeks: Array.isArray(s.weeks) ? [...new Set(s.weeks.filter(w => /^\d{4}-\d{2}-\d{2}$/.test(w)).map(mfWeekOf))].sort() : [],
     skip: Array.isArray(s.skip) ? s.skip : []
   };
 }
@@ -5288,7 +5288,7 @@ function mfDeloadState(log, id, today) {
     cur = mfWeekOf(today);
   const days = {};
   (log || []).forEach(e => {
-    if (!e || !e.date) return;
+    if (!e || !e.date || mfIsSauna(e)) return;
     const w = mfWeekOf(e.date);
     (days[w] = days[w] || new Set()).add(e.date);
   });
@@ -6502,7 +6502,7 @@ function TodayScreen({
   const today = todayStr();
   const schedule = loadSchedule(profileId) || DEFAULT_SCHEDULE;
   const todaySession = schedule[dayNum] || DEFAULT_SCHEDULE[dayNum];
-  const todayLogged = log.find(e => e.date === today);
+  const todayLogged = log.find(e => e.date === today && !mfIsSauna(e));
   const sessionDone = !!todayLogged;
   const weekDays = Array.from({
     length: 7
@@ -6512,7 +6512,7 @@ function TodayScreen({
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const dow = d.getDay();
     const sched = schedule[dow] || DEFAULT_SCHEDULE[dow];
-    const logged = log.find(e => e.date === ds);
+    const logged = log.find(e => e.date === ds && !mfIsSauna(e));
     const isToday = ds === today;
     const isPast = ds < today;
     return {
@@ -6819,10 +6819,16 @@ function TodayScreen({
       profileId: profileId,
       profile: profile
     });
-    S.deload = React.createElement(DeloadCard, {
+    S.deload = React.createElement(React.Fragment, null, React.createElement(CycleStrip, {
       profileId: profileId,
       log: log
-    });
+    }), React.createElement(DeloadCard, {
+      profileId: profileId,
+      log: log
+    }), React.createElement(ArmLogCard, {
+      profileId: profileId,
+      log: log
+    }));
     S.protein = React.createElement(React.Fragment, null, glp1 && proteinTarget > 0 && React.createElement("div", {
       style: {
         marginBottom: 14,
@@ -8522,7 +8528,7 @@ function TodayScreen({
         const s = schedule_[dow] || DEFAULT_SCHEDULE[dow];
         if (s.type === "rest") continue;
         sched_++;
-        if (log.find(e => e.date === ds)) logged_++;
+        if (log.find(e => e.date === ds && !mfIsSauna(e))) logged_++;
       }
       const adherPct = sched_ > 0 ? Math.round(logged_ / sched_ * 100) : 0;
       const SUMMARY_DISMISS_KEY = `mf_weekly_dismiss_${profileId}_${lwsStr}`;
@@ -9567,7 +9573,8 @@ function App() {
   const [kbEx, setKbEx] = useState(() => loadLS(activeProfileId ? pk(activeProfileId, "kb") : "_", DEFAULT_KB_EX));
   const [crdEx, setCrdEx] = useState(() => {
     const saved = loadLS(activeProfileId ? pk(activeProfileId, "crd") : "_", DEFAULT_CRD_EX);
-    return saved.includes("Yoga") ? saved : [...saved, "Yoga"];
+    const wy = saved.includes("Yoga") ? saved : [...saved, "Yoga"];
+    return wy.includes("Sauna") ? wy : [...wy, "Sauna"];
   });
   const [hiitMx, setHiitMx] = useState(() => loadLS(activeProfileId ? pk(activeProfileId, "hiit") : "_", DEFAULT_HIIT_MX));
   const [manageOpen, setManageOpen] = useState(false);
@@ -9585,7 +9592,7 @@ function App() {
     const crdFront = ["Recumbent Bike", "Pack Walk"];
     const crdRest = savedCrd0.filter(e => !crdFront.includes(e) && e !== "Incline Treadmill");
     const crdAll = [...crdFront, ...crdRest];
-    ["Stationary Bike", "Stair Stepper", "Yoga"].forEach(e => { if (!crdAll.includes(e)) crdAll.push(e); });
+    ["Stationary Bike", "Stair Stepper", "Yoga", "Sauna"].forEach(e => { if (!crdAll.includes(e)) crdAll.push(e); });
     crdAll.push("Incline Treadmill");
     setCrdEx(crdAll);
     setHiitMx(loadLS(pk(activeProfileId, "hiit"), DEFAULT_HIIT_MX));
@@ -9925,7 +9932,7 @@ function App() {
   const isTodayFastDay = !!todayFastDay;
   const proteinCritical = !isTodayFastDay && (activeProfile?.glp1 === "yes" || activeProfile?.glp1 === "maintaining") && proteinTarget > 0 && todayProtein < proteinTarget * 0.5;
   const proteinColor = proteinCritical ? "#f87171" : proteinPct >= 0.9 ? "var(--green)" : proteinPct >= 0.5 ? "var(--yellow)" : "var(--muted)";
-  const todayTraining = log.find(e => e.date === todayStr());
+  const todayTraining = log.find(e => e.date === todayStr() && !mfIsSauna(e));
   const trainingColor = todayTraining ? "var(--green)" : "var(--muted)";
   const trainingLabel = todayTraining ? todayTraining.type === "strength" ? "STR" : todayTraining.type === "kb" ? "KB" : todayTraining.type === "hiit" ? "HIIT" : "CRD" : "—";
   return React.createElement(React.Fragment, null, React.createElement("style", null, styles), glp1Milestone && React.createElement(GLP1MilestoneScreen, {
@@ -11161,7 +11168,8 @@ function StrengthTab({
     clearDraft,
     draftAge
   } = useDraft(draftKey);
-  const [date, setDate] = useState(() => draft?.date || todayStr());
+  const [date, setDate] = useState(() => mfDraftDate(draft));
+  mfUseFreshDate(date, setDate);
   const [sessionNotes, setSessionNotes] = useState(draft?.sessionNotes || "");
   const [error, setError] = useState("");
   const [templates, setTemplates] = useState(() => loadLS(STORAGE_KEY_STR_TEMPLATES, []));
@@ -12470,7 +12478,8 @@ function KBTab({
     draftAge
   } = useDraft(draftKey);
   const [showDraftBanner, setShowDraftBanner] = useState(!!draft?.circuit?.length);
-  const [date, setDate] = useState(() => draft?.date || todayStr());
+  const [date, setDate] = useState(() => mfDraftDate(draft));
+  mfUseFreshDate(date, setDate);
   const [notes, setNotes] = useState(draft?.notes || "");
   const [templates, setTemplates] = useState(() => loadLS(STORAGE_KEY_KB_TEMPLATES, []));
   const [templateName, setTemplateName] = useState("");
@@ -14355,7 +14364,8 @@ function HybridSession({
   const okDraft = draft?.data && Object.values(draft.data).every(rows => Array.isArray(rows) && rows.every(r => r && !Array.isArray(r)));
   const [data, setData] = useState(() => okDraft ? draft.data : prefill(plan));
   const [fin, setFin] = useState(() => draft?.fin || {});
-  const [date, setDate] = useState(() => draft?.date || todayStr());
+  const [date, setDate] = useState(() => mfDraftDate(draft));
+  mfUseFreshDate(date, setDate);
   const [armCheck, setArmCheck] = useState(draft?.armCheck ?? "");
   const [mins, setMins] = useState(draft?.mins || "");
   const [notes, setNotes] = useState(draft?.notes || "");
@@ -15508,7 +15518,8 @@ function CardioTab({
   };
   const initialExer = draft?.exer || (new Date().getDay() === 6 && exercises.includes("Pack Walk") ? "Pack Walk" : exercises.find(e => e === "Recumbent Bike") || exercises[0]) || "";
   const lastSess = getLastSession(initialExer);
-  const [date, setDate] = useState(() => draft?.date || todayStr());
+  const [date, setDate] = useState(() => mfDraftDate(draft));
+  mfUseFreshDate(date, setDate);
   const [exer, setExer] = useState(initialExer);
   const [dur, setDur] = useState(draft?.dur || "");
   const [avgHR, setAvgHR] = useState(draft?.avgHR || "");
@@ -15558,7 +15569,9 @@ function CardioTab({
   }, [date, exer, dur, avgHR, startHR, endHR, peakHR, speed, incline, distance, floors, stepRate, rpe, isZ2, notes, yogaStyle]);
   const isTreadmill = exer.toLowerCase().includes("treadmill");
   const isStairs = exer.toLowerCase().includes("stair") || exer.toLowerCase().includes("stepper");
-  const isYoga = exer.toLowerCase().includes("yoga");
+  const isSauna = exer.toLowerCase().includes("sauna");
+  const isYogaStyle = exer.toLowerCase().includes("yoga");
+  const isYoga = isYogaStyle || isSauna;
   const isRowing = exer.toLowerCase().includes("row");
   const isBike = exer.toLowerCase().includes("bike") || exer.toLowerCase().includes("cycl");
   const calcSpeed = isTreadmill && distance && dur ? Math.round(parseFloat(distance) / (parseFloat(dur) / 60) * 100) / 100 : null;
@@ -15613,7 +15626,7 @@ function CardioTab({
       rpe: rpe || null,
       drift: drift,
       isZ2: isYoga ? false : isZ2,
-      yogaStyle: isYoga ? yogaStyle : null,
+      yogaStyle: isYogaStyle ? yogaStyle : null,
       notes,
       sets: []
     });
@@ -15639,6 +15652,14 @@ function CardioTab({
     profile: profile,
     hrSet: crdHr,
     onSave: saveCrdHr
+  }), isSauna && React.createElement(SaunaCard, {
+    log: log
+  }), isTreadmill && React.createElement(ClimbTrendCard, {
+    log: log
+  }), !isYoga && React.createElement(Z2WatchCard, {
+    log: log,
+    profile: profile,
+    hrSet: crdHr
   }), showDraftBanner && (dur || avgHR || distance) && React.createElement(DraftBanner, {
     msg: `Draft restored — ${exer || "cardio"} ${dur ? dur + "min" : ""} ${distance ? distance + "mi" : ""} · saved ${draftAge}`,
     onRestore: () => setShowDraftBanner(false),
@@ -15658,7 +15679,7 @@ function CardioTab({
     onChange: e => setExer(e.target.value)
   }, exercises.map(ex => React.createElement("option", {
     key: ex
-  }, ex))))), isYoga && React.createElement("div", {
+  }, ex))))), isYogaStyle && React.createElement("div", {
     style: {
       marginBottom: 14
     }
@@ -15749,7 +15770,32 @@ function CardioTab({
     placeholder: "",
     value: dur,
     onChange: e => setDur(e.target.value)
-  }))), !isYoga && !isStairs && React.createElement("div", {
+  }))), isSauna && React.createElement("div", {
+    className: "form-row form-row-2",
+    style: {
+      marginBottom: 10
+    }
+  }, React.createElement("div", null, React.createElement("label", null, "Avg HR (bpm, optional)"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: avgHR,
+    onChange: e => setAvgHR(e.target.value)
+  })), React.createElement("div", null, React.createElement("label", null, "Peak HR (bpm, optional)"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: peakHR,
+    onChange: e => setPeakHR(e.target.value)
+  }))), isSauna && React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 10,
+      color: "var(--muted)",
+      marginBottom: 10,
+      padding: "6px 10px",
+      background: "var(--surface)",
+      borderRadius: 4
+    }
+  }, "Sauna sessions do not count toward Zone 2 minutes."), !isYoga && !isStairs && React.createElement("div", {
     className: "form-row form-row-2",
     style: {
       marginBottom: 10
@@ -16262,7 +16308,7 @@ function CardioTab({
     className: "card-head"
   }, "Notes"), React.createElement("input", {
     type: "text",
-    placeholder: isYoga ? "Focus, how body felt, teacher, studio..." : "HR behavior, feel, conditions, terrain...",
+    placeholder: isSauna ? "Temperature, how it felt..." : isYoga ? "Focus, how body felt, teacher, studio..." : "HR behavior, feel, conditions, terrain...",
     value: notes,
     onChange: e => setNotes(e.target.value)
   })), React.createElement("div", {
@@ -16328,7 +16374,7 @@ function CardioTab({
     className: "submit-section"
   }, React.createElement("div", null, React.createElement("div", {
     className: "submit-info"
-  }, React.createElement("strong", null, exer || "—"), isYoga && yogaStyle && React.createElement("span", {
+  }, React.createElement("strong", null, exer || "—"), isYogaStyle && yogaStyle && React.createElement("span", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 11,
@@ -16469,6 +16515,841 @@ function loadHRSet(id) {
   return id ? loadLS(HR_SET_KEY(id), {}) : {};
 }
 const NEW_STR_EX_V2 = ["Zercher Squat", "Zercher Split Squat", "Neutral-Grip DB Bench", "Straight-Arm Pulldown", "Rope Pushdown", "Step-Up (Slow Step-Down)"];
+function mfDraftDate(draft) {
+  const t = todayStr();
+  if (!draft || !draft.date || !draft._savedAt) return t;
+  const d = new Date(draft._savedAt);
+  const saved = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return saved === t ? draft.date : t;
+}
+function mfUseFreshDate(date, setDate) {
+  const seen = React.useRef(todayStr());
+  React.useEffect(() => {
+    const check = () => {
+      const t = todayStr();
+      if (t !== seen.current) {
+        if (date === seen.current) setDate(t);
+        seen.current = t;
+      }
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    const iv = setInterval(check, 60000);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+      clearInterval(iv);
+    };
+  }, [date]);
+}
+const MF_MONO = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 12,
+  color: "var(--label)",
+  lineHeight: 1.6
+};
+const MF_LAB = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: 1.5,
+  textTransform: "uppercase"
+};
+function mfDaysBetween(a, b) {
+  return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
+}
+function MfFold({
+  id,
+  title,
+  summary,
+  tone,
+  children
+}) {
+  const key = "mf_fold_" + id;
+  const [open, setOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(key) === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  const toggle = () => setOpen(o => {
+    try {
+      window.localStorage.setItem(key, o ? "0" : "1");
+    } catch (e) {}
+    return !o;
+  });
+  return React.createElement("div", {
+    className: "card"
+  }, React.createElement("button", {
+    type: "button",
+    onClick: toggle,
+    "aria-expanded": open,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+      width: "100%",
+      minHeight: 44,
+      padding: 0,
+      background: "none",
+      border: 0,
+      color: "inherit",
+      textAlign: "left",
+      cursor: "pointer"
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    style: {
+      display: "block",
+      fontFamily: "var(--font-head)",
+      fontSize: 17,
+      fontWeight: 700,
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      color: "var(--label)"
+    }
+  }, title), React.createElement("span", {
+    style: {
+      ...MF_MONO,
+      display: "block",
+      color: tone || "var(--text)",
+      marginTop: 2
+    }
+  }, summary)), React.createElement("span", {
+    style: {
+      ...MF_MONO,
+      flexShrink: 0,
+      padding: "8px 10px",
+      border: "1px solid var(--border)",
+      borderRadius: 4,
+      color: "var(--label)"
+    }
+  }, open ? "▲ Hide" : "▼ Details")), open && React.createElement("div", {
+    style: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTop: "1px solid var(--border)"
+    }
+  }, children));
+}
+function CycleStrip({
+  profileId,
+  log
+}) {
+  if (!profileId) return null;
+  const st = mfDeloadSet(profileId),
+    today = todayStr(),
+    cur = mfWeekOf(today);
+  const past = st.weeks.filter(w => w < cur).sort(),
+    last = past[past.length - 1] || null;
+  const next = st.weeks.filter(w => w > cur).sort()[0] || null;
+  const inDeload = st.weeks.includes(cur);
+  if (!last && !next && !inDeload) return null;
+  const wk = last ? mfDaysBetween(last, cur) / 7 : null;
+  const total = last && next ? mfDaysBetween(last, next) / 7 : null;
+  const phase = inDeload ? "Deload" : wk === 1 ? "Ramp" : "Build";
+  const col = inDeload ? "var(--teal)" : wk === 1 ? "var(--yellow)" : "var(--green)";
+  const days = next ? mfDaysBetween(today, next) : null;
+  const segs = total && total <= 16 ? Array.from({
+    length: total
+  }, (_, i) => i + 1) : [];
+  return React.createElement("div", {
+    className: "today-checkin-card",
+    style: {
+      padding: "12px 14px",
+      borderColor: col
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, React.createElement("div", null, React.createElement("span", {
+    style: {
+      ...MF_LAB,
+      color: col
+    }
+  }, "Training cycle "), React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 22,
+      fontWeight: 900,
+      color: "var(--text)",
+      marginLeft: 6
+    }
+  }, inDeload ? "Deload week" : wk ? `Week ${wk}${total ? ` of ${total}` : ""}` : "Before first deload"), !inDeload && wk && React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 16,
+      fontWeight: 700,
+      color: col,
+      marginLeft: 8,
+      textTransform: "uppercase",
+      letterSpacing: 1
+    }
+  }, phase)), React.createElement("div", {
+    style: MF_MONO
+  }, mfWeekLabel(cur))), segs.length > 0 && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 3,
+      marginTop: 8
+    },
+    role: "img",
+    "aria-label": `Week ${wk} of ${total}`
+  }, segs.map(i => React.createElement("div", {
+    key: i,
+    style: {
+      flex: 1,
+      height: 8,
+      borderRadius: 2,
+      background: i === total ? i === wk ? "var(--teal)" : "#17403b" : i < wk ? "var(--green)" : i === wk ? col : "var(--surface)",
+      border: i === wk ? "1px solid var(--text)" : "1px solid var(--border)"
+    }
+  }))), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      marginTop: 6
+    }
+  }, inDeload ? next ? `Next deload after this one: ${mfWeekLabel(next)}.` : "No later deload week is marked yet." : next ? `Deload week: ${mfWeekLabel(next)} · starts in ${days} day${days === 1 ? "" : "s"}.` : `No deload week is marked ahead. Your window opens after ${st.from} weeks and a deload is due by week ${st.by}.`, !inDeload && wk === 1 ? " Ramp week: fewer sets, about 3 reps short of failure." : ""));
+}
+const CLIMB_COLS = "52px 1fr 58px 50px 48px";
+function ClimbTrendCard({
+  log
+}) {
+  const all = (log || []).filter(e => e && e.type === "cardio" && /incline|treadmill/i.test(e.exercise || "") && mfVertPerHour(e) && Number(e.avgHR) > 0).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id || 0) - (b.id || 0));
+  if (all.length < 2) return null;
+  const rows = all.slice(-8);
+  const maxV = Math.max(...rows.map(mfVertPerHour));
+  const lastE = all[all.length - 1],
+    lv = mfVertPerHour(lastE),
+    la = Number(lastE.avgHR);
+  const like = all.slice(0, -1).filter(p => Math.abs(Number(p.avgHR) - la) <= 3).slice(-1)[0] || null;
+  const diff = like ? lv - mfVertPerHour(like) : null;
+  const short = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+  return React.createElement(MfFold, {
+    id: "climb",
+    title: "Backpacking readiness",
+    tone: diff === null ? "var(--text)" : diff > 0 ? "var(--green)" : diff < 0 ? "var(--yellow)" : "var(--text)",
+    summary: `${lv.toLocaleString()} ft/hour at ${la} bpm${like ? ` · ${diff > 0 ? "▲ +" : diff < 0 ? "▼ " : "= "}${diff !== 0 ? diff.toLocaleString() : "same"} vs ${short(like.date)}` : ""}`
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 4
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 34,
+      fontWeight: 900,
+      color: "var(--accent2)"
+    }
+  }, lv.toLocaleString()), React.createElement("span", {
+    style: MF_MONO
+  }, "ft per hour at avg ", la, " bpm · ", short(lastE.date))), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      color: diff === null ? "var(--muted)" : diff > 0 ? "var(--green)" : diff < 0 ? "var(--yellow)" : "var(--label)",
+      marginBottom: 10
+    }
+  }, like ? `${diff > 0 ? "▲ +" : diff < 0 ? "▼ " : "= "}${diff !== 0 ? diff.toLocaleString() + " ft per hour" : "same climb rate"} against ${short(like.date)} (${mfVertPerHour(like).toLocaleString()} ft per hour at avg ${like.avgHR} bpm, within 3 bpm).` : `No earlier incline session within 3 bpm of ${la} to compare with yet.`), React.createElement("div", {
+    style: {
+      ...MF_LAB,
+      color: "var(--muted)",
+      display: "grid",
+      gridTemplateColumns: CLIMB_COLS,
+      gap: 8,
+      marginBottom: 6
+    }
+  }, React.createElement("span", null, "Date"), React.createElement("span", null), React.createElement("span", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Ft/hour"), React.createElement("span", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Avg HR"), React.createElement("span", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Grade")), rows.map(e => {
+    const v = mfVertPerHour(e),
+      g = mfAvgGrade(e);
+    const now = e === lastE;
+    const cell = (txt, strong) => React.createElement("span", {
+      style: {
+        ...MF_MONO,
+        textAlign: "right",
+        color: strong ? "var(--text)" : "var(--label)",
+        fontWeight: now ? 500 : 400
+      }
+    }, txt);
+    return React.createElement("div", {
+      key: e.id || e.date,
+      style: {
+        display: "grid",
+        gridTemplateColumns: CLIMB_COLS,
+        gap: 8,
+        alignItems: "center",
+        padding: "5px 0",
+        borderTop: "1px solid var(--border)"
+      }
+    }, React.createElement("span", {
+      style: {
+        ...MF_MONO,
+        color: now ? "var(--accent2)" : "var(--label)"
+      }
+    }, short(e.date)), React.createElement("div", {
+      style: {
+        height: 8,
+        background: "var(--surface)",
+        borderRadius: 4,
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: `${Math.round(v / maxV * 100)}%`,
+        height: "100%",
+        background: now ? "var(--accent2)" : "#8a5a2b"
+      }
+    })), cell(v.toLocaleString(), true), cell(e.avgHR), cell(g ? `${g.pct}%` : "—"));
+  }), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      fontSize: 10,
+      color: "var(--muted)",
+      marginTop: 8
+    }
+  }, "One row per incline session. More feet per hour at the same heart rate means the same climb costs you less."));
+}
+function mfZ2Split(e, lo, hi) {
+  const m = e && e.watch && Array.isArray(e.watch.hrMin) ? e.watch.hrMin.filter(x => Number(x) > 0) : null;
+  if (!m || !m.length) return null;
+  return {
+    n: m.length,
+    inB: m.filter(x => x >= lo && x <= hi).length,
+    below: m.filter(x => x < lo).length,
+    above: m.filter(x => x > hi).length
+  };
+}
+function Z2WatchCard({
+  log,
+  profile,
+  hrSet
+}) {
+  const t = calcHRTargets(profile?.age || 50);
+  const hi = Number(hrSet?.z2High) || t.z2High,
+    lo = Number(hrSet?.z2Low) || t.z2Low;
+  const cur = mfWeekOf(todayStr());
+  const ord = (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id || 0) - (b.id || 0);
+  const z2All = (log || []).filter(e => e && e.type === "cardio" && e.isZ2 && e.date).sort(ord);
+  const otherDays = new Set((log || []).filter(e => e && e.date && (e.type === "strength" || e.type === "kb" || e.type === "hiit")).map(e => e.date));
+  const isDed = e => !otherDays.has(e.date);
+  const week = z2All.filter(e => mfWeekOf(e.date) === cur);
+  if (!week.length) return null;
+  const ded = week.filter(isDed),
+    post = week.filter(e => !isDed(e));
+  const rows = ded.map(e => ({
+    e,
+    sp: mfZ2Split(e, lo, hi)
+  }));
+  const withW = rows.filter(r => r.sp);
+  const sum = k => withW.reduce((a, r) => a + r.sp[k], 0);
+  const mins = l => l.reduce((a, e) => a + (Number(e.duration) || 0), 0);
+  const lastDed = !ded.length ? z2All.filter(e => isDed(e) && mfWeekOf(e.date) < cur).slice(-1)[0] || null : null;
+  const lastSp = lastDed ? mfZ2Split(lastDed, lo, hi) : null;
+  const short = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+  const bar = sp => React.createElement("div", {
+    style: {
+      display: "flex",
+      height: 8,
+      borderRadius: 4,
+      overflow: "hidden",
+      background: "var(--surface)"
+    }
+  }, React.createElement("div", {
+    style: {
+      width: `${sp.below / sp.n * 100}%`,
+      background: "var(--blue)"
+    }
+  }), React.createElement("div", {
+    style: {
+      width: `${sp.inB / sp.n * 100}%`,
+      background: "var(--green)"
+    }
+  }), React.createElement("div", {
+    style: {
+      width: `${sp.above / sp.n * 100}%`,
+      background: "var(--accent)"
+    }
+  }));
+  const group = (label, color) => React.createElement("div", {
+    style: {
+      ...MF_LAB,
+      color,
+      margin: "12px 0 6px"
+    }
+  }, label);
+  const dedRow = (e, sp) => React.createElement("div", {
+    key: e.id || e.date + e.exercise,
+    style: {
+      marginBottom: 8
+    }
+  }, React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, React.createElement("span", null, short(e.date), " · ", e.exercise), React.createElement("span", {
+    style: {
+      whiteSpace: "nowrap",
+      flexShrink: 0
+    }
+  }, e.duration, " min")), sp && bar(sp), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      marginTop: 3
+    }
+  }, sp ? React.createElement(React.Fragment, null, React.createElement("span", {
+    style: {
+      color: "var(--blue)"
+    }
+  }, sp.below, " min below"), " · ", React.createElement("span", {
+    style: {
+      color: "var(--green)"
+    }
+  }, sp.inB, " in range"), " · ", React.createElement("span", {
+    style: {
+      color: "var(--accent)"
+    }
+  }, sp.above, " above")) : "No watch data yet."));
+  return React.createElement(MfFold, {
+    id: "z2week",
+    title: "Zone 2 this week",
+    tone: "var(--text)",
+    summary: `${ded.length ? withW.length ? `Dedicated: ${sum("inB")} of ${mins(ded)} min in range` : `Dedicated: ${mins(ded)} min, no watch data yet` : "No dedicated workout yet"}${post.length ? ` · after lifting: ${mins(post)} min` : ""}`
+  }, group(`Dedicated Zone 2 workouts · range ${lo}–${hi}`, "var(--green)"), ded.length > 0 && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 18,
+      alignItems: "baseline",
+      flexWrap: "wrap",
+      marginBottom: 6
+    }
+  }, React.createElement("div", null, React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 34,
+      fontWeight: 900,
+      color: "var(--green)"
+    }
+  }, withW.length ? sum("inB") : "—"), React.createElement("span", {
+    style: MF_MONO
+  }, " min inside the range")), React.createElement("div", null, React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 34,
+      fontWeight: 900,
+      color: "var(--text)"
+    }
+  }, mins(ded)), React.createElement("span", {
+    style: MF_MONO
+  }, " min logged"))), ded.length > 0 && withW.length > 0 && React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      marginBottom: 8
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--blue)"
+    }
+  }, sum("below"), " min below ", lo), " · ", React.createElement("span", {
+    style: {
+      color: "var(--green)"
+    }
+  }, sum("inB"), " min in range"), " · ", React.createElement("span", {
+    style: {
+      color: "var(--accent)"
+    }
+  }, sum("above"), " min above ", hi)), rows.map(({
+    e,
+    sp
+  }) => dedRow(e, sp)), !ded.length && React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      color: "var(--muted)"
+    }
+  }, "None yet this week."), lastDed && React.createElement("div", {
+    style: {
+      marginTop: 6
+    }
+  }, React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      fontSize: 10,
+      color: "var(--muted)"
+    }
+  }, "Most recent one:"), dedRow(lastDed, lastSp)), post.length > 0 && group(`After lifting or HIIT · ${mins(post)} min · no range check`, "var(--label)"), post.map(e => React.createElement("div", {
+    key: e.id || e.date + e.exercise,
+    style: {
+      ...MF_MONO,
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, React.createElement("span", null, short(e.date), " · ", e.exercise), React.createElement("span", {
+    style: {
+      whiteSpace: "nowrap",
+      flexShrink: 0
+    }
+  }, e.duration, " min · ", e.avgHR ? `${e.avgHR} bpm` : "no HR yet"))), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      fontSize: 10,
+      color: "var(--muted)",
+      marginTop: 10
+    }
+  }, "A dedicated Zone 2 workout is a Zone 2 cardio session on a day with no lifting, hybrid, KB or HIIT session logged. Its minutes are counted from the watch's heart rate, minute by minute."));
+}
+function ArmLogCard({
+  profileId,
+  log
+}) {
+  const KEY = profileId ? pk(profileId, "arm_log") : null;
+  const [items, setItems] = useState(() => KEY ? loadLS(KEY, []) || [] : []);
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(todayStr());
+  const [lift, setLift] = useState("");
+  const [weight, setWeight] = useState("");
+  const [result, setResult] = useState("");
+  const [note, setNote] = useState("");
+  if (!profileId) return null;
+  const RES = {
+    fine: ["Fine", "var(--green)"],
+    mild: ["Mild", "var(--yellow)"],
+    reacted: ["Reacted", "var(--accent)"],
+    skipped: ["Skipped", "var(--muted)"]
+  };
+  const persist = next => {
+    setItems(next);
+    saveLS(KEY, next);
+  };
+  const add = () => {
+    if (!lift.trim() || !result) return;
+    persist([{
+      id: Date.now(),
+      date,
+      lift: lift.trim(),
+      weight: weight.trim(),
+      result,
+      note: note.trim()
+    }, ...items]);
+    setLift("");
+    setWeight("");
+    setResult("");
+    setNote("");
+  };
+  const hyb = (log || []).filter(e => e && e.armCheck != null).map(e => ({
+    id: "h" + e.id,
+    date: e.date,
+    lift: "After hybrid session",
+    weight: "",
+    result: null,
+    note: `arm ${e.armCheck}/10`,
+    ro: true
+  }));
+  const all = [...items, ...hyb].sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+  const last = all[0];
+  const short = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+  const line = x => `${short(x.date)} · ${x.lift}${x.weight ? ` · ${x.weight}` : ""}${x.result ? ` · ${RES[x.result] ? RES[x.result][0] : x.result}` : ""}${x.note ? ` · ${x.note}` : ""}`;
+  return React.createElement("div", {
+    className: "today-checkin-card",
+    style: {
+      padding: "10px 14px"
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 8
+    }
+  }, React.createElement("div", {
+    style: MF_MONO
+  }, React.createElement("span", {
+    style: {
+      ...MF_LAB,
+      color: "var(--purple)"
+    }
+  }, "Left arm "), last ? line(last) : "No arm tests logged yet."), React.createElement("button", {
+    className: "btn btn-ghost btn-sm",
+    style: {
+      padding: "8px 12px",
+      fontSize: 11,
+      minHeight: 36,
+      flexShrink: 0
+    },
+    "aria-expanded": open,
+    onClick: () => setOpen(o => !o)
+  }, open ? "Close" : "+ Log arm test")), open && React.createElement("div", {
+    style: {
+      marginTop: 10,
+      paddingTop: 10,
+      borderTop: "1px solid var(--border)"
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, React.createElement("div", {
+    style: {
+      flex: "1 1 120px"
+    }
+  }, React.createElement("label", {
+    style: {
+      fontSize: 10
+    }
+  }, "Date"), React.createElement("input", {
+    type: "date",
+    value: date,
+    onChange: e => setDate(e.target.value)
+  })), React.createElement("div", {
+    style: {
+      flex: "2 1 160px"
+    }
+  }, React.createElement("label", {
+    style: {
+      fontSize: 10
+    }
+  }, "Lift"), React.createElement("input", {
+    type: "text",
+    placeholder: "Hammer curl",
+    list: "mf-arm-lifts",
+    value: lift,
+    onChange: e => setLift(e.target.value)
+  }), React.createElement("datalist", {
+    id: "mf-arm-lifts"
+  }, (loadLS(pk(profileId, "str"), []) || []).map(n => React.createElement("option", {
+    key: n,
+    value: n
+  })))), React.createElement("div", {
+    style: {
+      flex: "1 1 100px"
+    }
+  }, React.createElement("label", {
+    style: {
+      fontSize: 10
+    }
+  }, "Weight and reps"), React.createElement("input", {
+    type: "text",
+    placeholder: "20 x 10",
+    value: weight,
+    onChange: e => setWeight(e.target.value)
+  }))), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      marginTop: 8
+    }
+  }, Object.keys(RES).map(k => React.createElement("button", {
+    key: k,
+    type: "button",
+    "aria-pressed": result === k,
+    onClick: () => setResult(k),
+    style: {
+      padding: "6px 12px",
+      borderRadius: 4,
+      cursor: "pointer",
+      fontFamily: "var(--font-head)",
+      fontSize: 13,
+      fontWeight: 700,
+      letterSpacing: .5,
+      background: result === k ? "var(--surface)" : "transparent",
+      color: result === k ? RES[k][1] : "var(--label)",
+      border: `1px solid ${result === k ? RES[k][1] : "var(--border)"}`
+    }
+  }, RES[k][0]))), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8,
+      alignItems: "flex-end"
+    }
+  }, React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, React.createElement("label", {
+    style: {
+      fontSize: 10
+    }
+  }, "Note"), React.createElement("input", {
+    type: "text",
+    placeholder: "What you felt, and when",
+    value: note,
+    onChange: e => setNote(e.target.value)
+  })), React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    style: {
+      minHeight: 36,
+      padding: "8px 14px"
+    },
+    disabled: !lift.trim() || !result,
+    onClick: add
+  }, "Save")), React.createElement("div", {
+    style: {
+      ...MF_MONO,
+      marginTop: 10
+    }
+  }, all.length === 0 && React.createElement("div", {
+    style: {
+      color: "var(--muted)"
+    }
+  }, "Nothing logged yet."), all.slice(0, 20).map(x => React.createElement("div", {
+    key: x.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 8,
+      padding: "3px 0",
+      borderLeft: `3px solid ${x.result && RES[x.result] ? RES[x.result][1] : "var(--border)"}`,
+      paddingLeft: 8,
+      marginBottom: 3
+    }
+  }, React.createElement("span", null, line(x)), !x.ro && React.createElement("button", {
+    className: "btn btn-ghost btn-sm",
+    style: {
+      padding: "6px 10px",
+      fontSize: 10,
+      flexShrink: 0
+    },
+    "aria-label": `Remove arm entry ${line(x)}`,
+    onClick: () => persist(items.filter(i => i.id !== x.id))
+  }, "Remove"))))));
+}
+function mfIsSauna(e) {
+  return !!e && e.type === "cardio" && /sauna/i.test(e.exercise || "");
+}
+function SaunaCard({
+  log
+}) {
+  const all = (log || []).filter(mfIsSauna).sort((a, b) => a.date < b.date ? 1 : -1);
+  const cur = mfWeekOf(todayStr());
+  const weeks = [0, 1, 2, 3].map(i => mfDayShift(cur, -7 * i));
+  const rows = weeks.map(w => {
+    const s = all.filter(e => mfWeekOf(e.date) === w);
+    return {
+      w,
+      n: s.length,
+      min: s.reduce((a, e) => a + (Number(e.duration) || 0), 0)
+    };
+  });
+  const maxMin = Math.max(1, ...rows.map(r => r.min));
+  const last = all[0];
+  const mono = {
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    color: "var(--label)"
+  };
+  return React.createElement("div", {
+    className: "card"
+  }, React.createElement("div", {
+    className: "card-head"
+  }, "Sauna"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 18,
+      alignItems: "baseline",
+      marginBottom: 10
+    }
+  }, React.createElement("div", null, React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 34,
+      fontWeight: 900,
+      color: "var(--teal)"
+    }
+  }, rows[0].n), React.createElement("span", {
+    style: mono
+  }, rows[0].n === 1 ? " session this week" : " sessions this week")), React.createElement("div", null, React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 34,
+      fontWeight: 900,
+      color: "var(--text)"
+    }
+  }, rows[0].min), React.createElement("span", {
+    style: mono
+  }, " min"))), rows.map((r, i) => React.createElement("div", {
+    key: r.w,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 5
+    }
+  }, React.createElement("div", {
+    style: {
+      ...mono,
+      width: 108,
+      flexShrink: 0
+    }
+  }, i === 0 ? "This week" : mfWeekLabel(r.w)), React.createElement("div", {
+    style: {
+      flex: 1,
+      height: 8,
+      background: "var(--surface)",
+      borderRadius: 4,
+      overflow: "hidden"
+    }
+  }, React.createElement("div", {
+    style: {
+      width: `${Math.round(r.min / maxMin * 100)}%`,
+      height: "100%",
+      background: "var(--teal)"
+    }
+  })), React.createElement("div", {
+    style: {
+      ...mono,
+      width: 92,
+      textAlign: "right",
+      flexShrink: 0
+    }
+  }, r.n, " × · ", r.min, " min"))), React.createElement("div", {
+    style: {
+      ...mono,
+      color: "var(--muted)",
+      marginTop: 8
+    }
+  }, last ? `Last: ${fmtDate(last.date)} · ${last.duration} min${last.avgHR ? ` · avg HR ${last.avgHR}` : ""} · ${all.length} logged in total` : "No sauna sessions logged yet."));
+}
 function HRTargetsCard({
   profile,
   hrSet,
@@ -16602,7 +17483,8 @@ function HIITTab({
   const blankIvs = n => Array.from({
     length: n
   }, (_, i) => newInterval(i + 1));
-  const [date, setDate] = useState(() => draft?.date || todayStr());
+  const [date, setDate] = useState(() => mfDraftDate(draft));
+  mfUseFreshDate(date, setDate);
   const [machine, setMachine] = useState(draft?.machine || machines[0] || "Rowing Machine");
   const [intervals, setIntervals] = useState(() => draft?.intervals || blankIvs(defBoosts));
   const [workSec, setWorkSec] = useState(draft?.workSec || String(hrSet.holdSec || lastH?.workSec || 40));
@@ -18376,7 +19258,7 @@ function FullSystemEval({
     const hiitSess = period.filter(e => e.type === "hiit");
     const hiitGoal = Math.round(parseInt(days) / 7);
     const strSess = period.filter(e => e.type === "strength" || e.type === "kb");
-    const cardioSess = period.filter(e => e.type === "cardio" && !e.isZ2);
+    const cardioSess = period.filter(e => e.type === "cardio" && !e.isZ2 && !mfIsSauna(e));
     const totalSess = period.length;
     let hiitQuality = "";
     if (hiitSess.length) {
@@ -18758,7 +19640,7 @@ function computeReadiness(log, profileId, profile) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    if (!log.find(e => e.date === ds)) {
+    if (!log.find(e => e.date === ds && !mfIsSauna(e))) {
       daysSinceRest = i;
       break;
     }
@@ -19546,7 +20428,7 @@ function computeConsistency(log, profileId, profile) {
       const sched = schedule[dow] || DEFAULT_SCHEDULE[dow];
       if (sched.type === "rest") continue;
       wSched++;
-      if (log.find(e => e.date === ds)) wLogged++;
+      if (log.find(e => e.date === ds && !mfIsSauna(e))) wLogged++;
     }
     scheduledDays += wSched;
     loggedDays += wLogged;
@@ -19596,7 +20478,7 @@ function computeConsistency(log, profileId, profile) {
     const dow = new Date(ds + "T12:00:00").getDay();
     const sched = schedule[dow] || DEFAULT_SCHEDULE[dow];
     const isRestDay = sched.type === "rest";
-    const logged = log.find(e => e.date === ds);
+    const logged = log.find(e => e.date === ds && !mfIsSauna(e));
     if (isRestDay) {
       continue;
     }
@@ -20794,7 +21676,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 40 · Nov 3";
+const MF_BUILD_LABEL = "Build 41 · Nov 13";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -21472,7 +22354,9 @@ function DashboardTab({
   const weekByType = {
     strength: thisWeek.filter(e => e.type === "strength").length,
     kb: thisWeek.filter(e => e.type === "kb").length,
-    cardio: thisWeek.filter(e => e.type === "cardio" && !e.isZ2).length,
+    cardio: thisWeek.filter(e => e.type === "cardio" && !e.isZ2 && !mfIsSauna(e)).length,
+    sauna: thisWeek.filter(mfIsSauna).length,
+    saunaMin: thisWeek.filter(mfIsSauna).reduce((a, e) => a + (Number(e.duration) || 0), 0),
     hiit: thisWeek.filter(e => e.type === "hiit").length,
     z2: thisWeek.filter(e => e.isZ2).length
   };
@@ -21997,7 +22881,7 @@ function DashboardTab({
       letterSpacing: 1,
       textTransform: "uppercase"
     }
-  }, "This Week Breakdown"), [["Strength", weekByType.strength, "var(--accent2)"], ["KB Circuit", weekByType.kb, "var(--purple)"], ["HIIT", weekByType.hiit, "var(--yellow)"], ["Zone 2", weekByType.z2, "var(--green)"], ["Other Cardio", weekByType.cardio, "var(--blue)"]].map(([label, count, color]) => count > 0 && React.createElement("div", {
+  }, "This Week Breakdown"), [["Strength", weekByType.strength, "var(--accent2)"], ["KB Circuit", weekByType.kb, "var(--purple)"], ["HIIT", weekByType.hiit, "var(--yellow)"], ["Zone 2", weekByType.z2, "var(--green)"], ["Other Cardio", weekByType.cardio, "var(--blue)"], [`Sauna · ${weekByType.saunaMin} min`, weekByType.sauna, "var(--teal)"]].map(([label, count, color]) => count > 0 && React.createElement("div", {
     key: label,
     style: {
       ...drillStyle,
@@ -22042,7 +22926,7 @@ function DashboardTab({
       letterSpacing: 1,
       textTransform: "uppercase"
     }
-  }, "All Time Breakdown"), [["Strength Sessions", log.filter(e => e.type === "strength").length, "var(--accent2)"], ["KB Circuit Sessions", log.filter(e => e.type === "kb").length, "var(--purple)"], ["HIIT Sessions", log.filter(e => e.type === "hiit").length, "var(--yellow)"], ["Zone 2 Sessions", log.filter(e => e.isZ2).length, "var(--green)"], ["Other Cardio", log.filter(e => e.type === "cardio" && !e.isZ2).length, "var(--blue)"], ["Total Zone 2 Minutes", log.filter(e => e.isZ2).reduce((a, e) => a + (Number(e.duration) || 0), 0), "var(--green)"]].map(([label, val, color]) => React.createElement("div", {
+  }, "All Time Breakdown"), [["Strength Sessions", log.filter(e => e.type === "strength").length, "var(--accent2)"], ["KB Circuit Sessions", log.filter(e => e.type === "kb").length, "var(--purple)"], ["HIIT Sessions", log.filter(e => e.type === "hiit").length, "var(--yellow)"], ["Zone 2 Sessions", log.filter(e => e.isZ2).length, "var(--green)"], ["Other Cardio", log.filter(e => e.type === "cardio" && !e.isZ2 && !mfIsSauna(e)).length, "var(--blue)"], ["Sauna Sessions", log.filter(mfIsSauna).length, "var(--teal)"], ["Total Sauna Minutes", log.filter(mfIsSauna).reduce((a, e) => a + (Number(e.duration) || 0), 0), "var(--teal)"], ["Total Zone 2 Minutes", log.filter(e => e.isZ2).reduce((a, e) => a + (Number(e.duration) || 0), 0), "var(--green)"]].map(([label, val, color]) => React.createElement("div", {
     key: label,
     style: {
       ...drillStyle,
