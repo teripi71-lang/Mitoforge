@@ -1208,10 +1208,12 @@ const GENERIC_SCHEDULE = {
 
 
 // ===== v2: Nov 8, 2026 plan (Monday-start week) =====
-const DEFAULT_AVOID = "left arm: no curls; inner hip: avoid incline treadmill";
+const OLD_DEFAULT_AVOID = "left arm: no curls; inner hip: avoid incline treadmill";
+const DEFAULT_AVOID = "left arm: no curls";
 const MF_GOALS = [["longevity", "Longevity"], ["strength", "Strength"], ["hypertrophy", "Hypertrophy"], ["endurance", "Endurance"], ["backpacking", "Backpacking"], ["recomp", "Weight Loss & Recomp"]];
 const MF_GOAL_LABEL = k => (MF_GOALS.find(g => g[0] === k) || [k, ({muscle:"Muscle Preservation",performance:"Athletic Performance",health:"Getting Started"})[k] || k])[1];
 const PLAN_START = "2026-11-08";
+const PLAN_VERSION = 2;
 const PLAN_DAYS = {
   mon: { title: "Lower A — squat focus", lift: 60, z2: 25, z2hr: "115–125 (easy)", z2how: "recumbent bike", total: 85,
     items: [["Zercher Squat", "4 × 5–8", "Stop 2 reps short. Goblet squat if the left arm reacts."], ["Split Squat", "3 × 8–12 / leg, 3-s lowering", "Last set 0–1 short."], ["Spanish Squat", "2 × 10–15 (or slow step-down)", "Last set 0–1 short; knee pain ≤ 3/10."], ["Copenhagen Plank", "2 × 15–30 s / side", ""]] },
@@ -1224,7 +1226,7 @@ const PLAN_DAYS = {
   fri: { title: "Upper B — pull focus", lift: 70, z2: 30, z2hr: "127–132 (in band)", z2how: "bike", total: 100,
     items: [["Neutral-Grip Pulldown", "4 × 6–8", "Last set 0–1 short."], ["Chest Supported Row", "3 × 8–12, different grip", "Last set 0–1 short."], ["Incline Neutral-Grip DB Press", "3 × 8–12", "Last set 0–1 short."], ["Lateral Raise", "3 × 12–20", ""], ["Rear-Delt Raise", "3 × 12–20", ""], ["Overhead Cable Triceps Extension", "2–3 × 10–15", "Only if the left elbow is fine; skip if it complains."]], notes: ["No curls."] },
   sat: { title: "Backpacking day — functional", lift: 20, z2: 75, z2hr: "120–132 (cap ~135 on climbs)", z2how: "pack walk, flat-to-rolling, 60–90 min", total: 95,
-    items: [["Farmer Carries", "3 × 30–40 m", ""], ["Step-Up (Light)", "2 × 10 / leg", ""]], notes: ["Pack walk counts as Zone 2.", "Hip sore? 60 min bike in band + carries only.", "Pack load: +5 lb OR +15 min every 1–2 weeks, never both. Hip: incline ≤ 5%."] },
+    items: [["Farmer Carries", "3 × 30–40 m", ""], ["Step-Up (Light)", "2 × 10 / leg", ""]], notes: ["Pack walk counts as Zone 2.", "Hip sore? 60 min bike in band + carries only.", "Pack load: +5 lb OR +15 min every 1–2 weeks, never both."] },
   sun: { title: "Rest", lift: 0, z2: 0, total: 0, items: [], notes: ["Full rest or an easy unloaded walk."] }
 };
 const PLAN_RX = {};
@@ -1247,12 +1249,15 @@ window.mfAvoidText = mfAvoidText;
 function mfAvoidFlag(name) {
   const a = mfAvoidText().toLowerCase(), n = String(name || "").toLowerCase();
   if (!a || !n) return "";
-  const arm = /arm|elbow|bicep|curl/.test(a), hip = /hip|incline treadmill/.test(a);
+  const arm = /arm|elbow|bicep|curl/.test(a);
   if (arm && /curl/.test(n)) return "On your avoid list: curls (left arm)";
   if (arm && /zercher/.test(n)) return "Elbow-crook load — swap to goblet squat if the left arm reacts";
   if (arm && /chin-?up|preacher|hammer|bicep|underhand|reverse.grip/.test(n)) return "Biceps/elbow-heavy — check the left arm";
-  if (hip && /incline treadmill|incline walk/.test(n)) return "Inner hip: keep incline ≤ 5% — bike or pack walk preferred";
-  for (const m of a.matchAll(/(?:no|avoid)\s+([a-z][a-z \-]{2,30})/g)) { const t = m[1].trim().replace(/s$/, ""); if (t.length > 2 && n.includes(t)) return "On your avoid list: " + m[1].trim(); }
+  for (const m of a.matchAll(/(?:no|avoid)\s+([a-z][a-z \-]{2,30})/g)) {
+    const t = m[1].trim().replace(/s$/, "");
+    if (/incline|treadmill/.test(t)) continue;
+    if (t.length > 2 && n.includes(t)) return "On your avoid list: " + m[1].trim();
+  }
   return "";
 }
 function mfAvoidTag(name) {
@@ -1864,6 +1869,25 @@ const styles = `
   .trend-up{color:#f87171;}
   .trend-dn{color:var(--green);}
   .trend-sm{color:var(--muted);}
+  .mf-timers{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+  .mf-meter{position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 0 10px;margin:0 0 12px;}
+  .mf-meter-row{margin-bottom:8px;}
+  .mf-meter-top{display:flex;justify-content:space-between;gap:8px;font-family:var(--font-mono);font-size:12px;color:var(--label);margin-bottom:4px;}
+  .mf-bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;}
+  .mf-bar > div{height:8px;border-radius:4px;}
+  .gym-step{min-width:48px;min-height:48px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:var(--font-head);font-size:22px;font-weight:700;cursor:pointer;line-height:1;}
+  .gym-step:active{background:var(--accent);color:#fff;}
+  .gym-num{min-height:48px;min-width:72px;text-align:center;font-size:20px;font-weight:700;font-family:var(--font-mono);}
+  .gym-save{min-height:48px;padding:10px 16px;font-size:14px;}
+  .rest-preset{min-height:48px;min-width:64px;flex:1;font-size:16px;justify-content:center;}
+  .mf-rest-dock{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#14171d;border-top:2px solid var(--accent);padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 24px rgba(0,0,0,.45);}
+  .mf-rest-dock-inner{max-width:1100px;margin:0 auto;}
+  .mf-pr{display:inline-block;margin-left:8px;background:var(--yellow);color:#111318;font-family:var(--font-head);font-size:12px;font-weight:900;letter-spacing:.4px;padding:2px 7px;border-radius:3px;vertical-align:middle;}
+  @media(max-width:600px){
+    .mf-timers{grid-template-columns:1fr;}
+    .gym-num{font-size:18px;}
+    .sets-table td input,.interval-table td input{min-height:48px;font-size:18px;}
+  }
 `;
 
 
@@ -4088,7 +4112,7 @@ function ProfileSetup({
   const [glp1Start, setGlp1Start] = useState(existing?.glp1Start || "");
   const [glp1Day, setGlp1Day] = useState(existing?.glp1Day || "");
   const [goal, setGoal] = useState(existing?.goal || "");
-  const [avoid, setAvoid] = useState(typeof existing?.avoid === "string" ? existing.avoid : DEFAULT_AVOID);
+  const [avoid, setAvoid] = useState(typeof existing?.avoid === "string" ? existing.avoid.trim() === OLD_DEFAULT_AVOID ? DEFAULT_AVOID : existing.avoid : DEFAULT_AVOID);
   const [error, setError] = useState("");
   const profileId = existing?.id || null;
   const handleSave = () => {
@@ -4471,33 +4495,176 @@ function loadSchedule(profileId) {
 function saveSchedule(profileId, schedule) {
   try {
     let keep = null;
+    let from = PLAN_VERSION;
     try {
       const o = JSON.parse(mfStore.getItem(SCHEDULE_KEY(profileId)) || "null");
       if (o && o.__next && todayStr() < o.__next.from) keep = o.__next;
+      if (o && Number(o.__fromPlan) > 0) from = Number(o.__fromPlan);
     } catch {}
-    mfStore.setItem(SCHEDULE_KEY(profileId), JSON.stringify(keep ? {
+    const out = {
       ...schedule,
-      __next: keep
-    } : schedule));
+      __fromPlan: Number(schedule && schedule.__fromPlan) > 0 ? Number(schedule.__fromPlan) : from
+    };
+    if (keep) out.__next = keep;
+    mfStore.setItem(SCHEDULE_KEY(profileId), JSON.stringify(out));
   } catch {}
 }
 
+function mfSchedDays(o) {
+  if (!o || typeof o !== "object") return null;
+  const src = o.__next && o.__next.days && todayStr() >= o.__next.from ? o.__next.days : o;
+  const days = {};
+  let any = false;
+  for (let i = 0; i <= 6; i++) {
+    const d = src[i] || src[String(i)];
+    if (d && typeof d === "object") {
+      days[i] = d;
+      any = true;
+    }
+  }
+  return any ? days : null;
+}
+function mfSchedPrint(days) {
+  if (!days) return "";
+  return [0, 1, 2, 3, 4, 5, 6].map(i => {
+    const d = days[i] || {};
+    return [d.type || "", d.label || "", d.plan || ""].join("|");
+  }).join(";");
+}
+function mfPlanStatus(profileId) {
+  if (!profileId) return "none";
+  let raw = null;
+  try {
+    raw = JSON.parse(mfStore.getItem(SCHEDULE_KEY(profileId)) || "null");
+  } catch {
+    return "none";
+  }
+  if (!raw) return "none";
+  const from = Number(raw.__fromPlan) || 0;
+  if (from >= PLAN_VERSION) return "current";
+  if (mfSchedPrint(mfSchedDays(raw)) === mfSchedPrint(PLAN_SCHEDULE)) return "stamp";
+  return "prompt";
+}
+function mfStampPlan(profileId) {
+  try {
+    const o = JSON.parse(mfStore.getItem(SCHEDULE_KEY(profileId)) || "null");
+    if (!o) return;
+    o.__fromPlan = PLAN_VERSION;
+    mfStore.setItem(SCHEDULE_KEY(profileId), JSON.stringify(o));
+  } catch {}
+}
+function mfAcceptPlanUpdate(profileId) {
+  let o = null;
+  try {
+    o = JSON.parse(mfStore.getItem(SCHEDULE_KEY(profileId)) || "null");
+  } catch {}
+  const histKey = `mf_schedule_history_${profileId}`;
+  try {
+    if (o && !mfStore.getItem(histKey)) {
+      mfStore.setItem(histKey, JSON.stringify({
+        savedAt: todayStr(),
+        until: PLAN_START,
+        days: mfSchedDays(o) || o,
+        keptBy: "plan-update"
+      }));
+    }
+  } catch {}
+  let keep = null;
+  if (o && o.__next && todayStr() < o.__next.from) keep = o.__next;
+  const next = {
+    ...PLAN_SCHEDULE,
+    __fromPlan: PLAN_VERSION
+  };
+  if (keep) next.__next = keep;
+  try {
+    mfStore.setItem(SCHEDULE_KEY(profileId), JSON.stringify(next));
+  } catch {}
+}
+function mfKeepMyPlan(profileId) {
+  let o = null;
+  try {
+    o = JSON.parse(mfStore.getItem(SCHEDULE_KEY(profileId)) || "null");
+  } catch {}
+  if (!o) o = {
+    ...PLAN_SCHEDULE
+  };
+  o.__fromPlan = PLAN_VERSION;
+  try {
+    mfStore.setItem(SCHEDULE_KEY(profileId), JSON.stringify(o));
+  } catch {}
+}
 function mfMigrateScheduleV2(id) {
   if (!id) return;
   try {
-    const flag = `mf_${id}_sched_v2`;
-    if (mfStore.getItem(flag)) return;
-    const raw = mfStore.getItem(SCHEDULE_KEY(id));
-    if (raw) {
-      const o = JSON.parse(raw);
-      if (o && !o.__next) {
-        mfStore.setItem(`mf_schedule_history_${id}`, JSON.stringify({ savedAt: todayStr(), until: PLAN_START, days: o }));
-        if (todayStr() < PLAN_START) mfStore.setItem(SCHEDULE_KEY(id), JSON.stringify({ ...o, __next: { from: PLAN_START, days: PLAN_SCHEDULE } }));
-        else mfStore.setItem(SCHEDULE_KEY(id), JSON.stringify(PLAN_SCHEDULE));
-      }
-    }
-    mfStore.setItem(flag, "1");
+    if (mfPlanStatus(id) === "stamp") mfStampPlan(id);
   } catch {}
+}
+function PlanUpdateBanner({
+  profileId,
+  onChanged
+}) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const st = mfPlanStatus(profileId);
+    if (st === "stamp") {
+      mfStampPlan(profileId);
+      setShow(false);
+    } else setShow(st === "prompt");
+  }, [profileId]);
+  if (!show) return null;
+  const done = fn => {
+    fn(profileId);
+    setShow(false);
+    if (onChanged) onChanged();
+  };
+  return React.createElement("div", {
+    className: "card",
+    "data-testid": "plan-update",
+    style: {
+      borderColor: "var(--yellow)",
+      marginBottom: 12
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 18,
+      fontWeight: 700,
+      letterSpacing: .4,
+      marginBottom: 6
+    }
+  }, "A newer weekly plan is ready"), React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-body)",
+      fontSize: 15,
+      color: "var(--label)",
+      lineHeight: 1.5,
+      marginBottom: 12
+    }
+  }, "Your saved week is still the plan from before November 8. The current plan is Lower A, Upper A, rowing, Lower B, Upper B, and a backpacking day. Your workout logs stay put. This only changes the weekly schedule, and only if you tap the button."), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, React.createElement("button", {
+    className: "btn btn-teal",
+    "data-testid": "plan-use-new",
+    style: {
+      minHeight: 48,
+      flex: 1,
+      justifyContent: "center"
+    },
+    onClick: () => done(mfAcceptPlanUpdate)
+  }, "Use the new plan"), React.createElement("button", {
+    className: "btn btn-secondary",
+    "data-testid": "plan-keep",
+    style: {
+      minHeight: 48,
+      flex: 1,
+      justifyContent: "center"
+    },
+    onClick: () => done(mfKeepMyPlan)
+  }, "Keep my schedule")));
 }
 function ScheduleEditor({
   profileId,
@@ -4581,7 +4748,13 @@ function ScheduleEditor({
     style: {
       marginTop: 24
     }
-  }, React.createElement("div", {
+  }, React.createElement(PlanUpdateBanner, {
+    profileId: profileId,
+    onChanged: () => {
+      const saved = loadSchedule(profileId);
+      if (saved) setSchedule(saved);
+    }
+  }), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -5515,6 +5688,326 @@ function mfProgCue(log, name, id, equipType, trackingMode) {
     t: `Same load (${loadTxt}). Build every working set to ${range.hi}${unit}: ${nTop} of ${n} there last time.${same >= 4 ? ` ${same} sessions at this load.` : ""}`
   };
 }
+function mfRxRange(name) {
+  const rx = PLAN_RX[name] && PLAN_RX[name].rx;
+  if (!rx) return null;
+  const m = String(rx).match(/(\d+)\s*[–\-]\s*(\d+)/);
+  if (!m) return null;
+  const lo = Number(m[1]),
+    hi = Number(m[2]);
+  if (!(hi > 0)) return null;
+  return {
+    lo: Math.min(lo, hi),
+    hi: Math.max(lo, hi),
+    src: "plan"
+  };
+}
+function mfLiftRange(id, name) {
+  const plan = mfRxRange(name);
+  if (plan) return plan;
+  const saved = mfRepRange(id, name);
+  if (saved && Number(saved.hi) > 0) return {
+    lo: saved.lo,
+    hi: saved.hi,
+    src: "yours"
+  };
+  return {
+    lo: 8,
+    hi: 12,
+    src: "default"
+  };
+}
+function mfIsLowerLift(name) {
+  return /squat|rdl|lunge|step-?up|deadlift|hinge|split|swing|leg press|hip thrust|calf|hamstring|good morning/i.test(String(name || ""));
+}
+function mfIsDumbbellLift(name) {
+  return /dumbbell|\bdb\b/i.test(String(name || ""));
+}
+function mfEpley(w, r) {
+  w = Number(w);
+  r = Number(r);
+  if (!(w > 0) || !(r > 0)) return 0;
+  return Math.round(w * (1 + r / 30) * 10) / 10;
+}
+function mfBestSet(sets) {
+  let bestW = 0,
+    bestR = 0,
+    bestE = 0,
+    eW = 0,
+    eR = 0;
+  (sets || []).forEach(s => {
+    const w = Number(s && s.weight) || 0,
+      r = Number(s && s.reps) || 0;
+    if (!(r > 0)) return;
+    if (w > bestW || w === bestW && r > bestR) {
+      bestW = w;
+      bestR = r;
+    }
+    const e = mfEpley(w, r);
+    if (e > bestE) {
+      bestE = e;
+      eW = w;
+      eR = r;
+    }
+  });
+  return {
+    bestW,
+    bestR,
+    bestE,
+    eW,
+    eR
+  };
+}
+function mfPrBook(log) {
+  const by = {};
+  const sessions = [...(log || [])].filter(e => e && (e.type === "strength" || e.type === "kb") && Array.isArray(e.circuitItems) && e.date).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id || 0) - (b.id || 0));
+  sessions.forEach(e => {
+    e.circuitItems.forEach(it => {
+      if (!it || !it.exercise) return;
+      const b = mfBestSet(it.sets);
+      if (!(b.bestR > 0)) return;
+      const cur = by[it.exercise] || {
+        name: it.exercise,
+        bestW: 0,
+        bestR: 0,
+        bestE: 0,
+        eW: 0,
+        eR: 0,
+        date: e.date,
+        eDate: e.date
+      };
+      if (b.bestW > cur.bestW || b.bestW === cur.bestW && b.bestR > cur.bestR) {
+        cur.bestW = b.bestW;
+        cur.bestR = b.bestR;
+        cur.date = e.date;
+      }
+      if (b.bestE > cur.bestE) {
+        cur.bestE = b.bestE;
+        cur.eW = b.eW;
+        cur.eR = b.eR;
+        cur.eDate = e.date;
+      }
+      by[it.exercise] = cur;
+    });
+  });
+  return Object.values(by).sort((a, b) => b.bestE - a.bestE || a.name.localeCompare(b.name));
+}
+function mfPrBeat(log, name, sets) {
+  const hist = mfPrBook(log).find(p => p.name === name) || null;
+  const now = mfBestSet(sets);
+  if (!(now.bestR > 0)) return null;
+  const beatsW = now.bestW > 0 && (!hist || now.bestW > hist.bestW || now.bestW === hist.bestW && now.bestR > hist.bestR);
+  const beatsE = now.bestE > 0 && (!hist || now.bestE > (hist.bestE || 0) + 0.05);
+  if (!beatsW && !beatsE) return null;
+  return {
+    beatsW,
+    beatsE,
+    now,
+    hist
+  };
+}
+function mfSetLine(sets, equip) {
+  const rows = (sets || []).filter(s => s && (s.reps || s.weight));
+  if (!rows.length) return "";
+  if (equip === "bodyweight") return rows.filter(s => s.reps).map(s => `×${s.reps}`).join(", ");
+  if (equip === "band") return rows.filter(s => s.reps).map(s => `${s.weight || "band"}×${s.reps}`).join(", ");
+  return rows.filter(s => s.weight && s.reps).map(s => `${s.weight}×${s.reps}`).join(", ");
+}
+function mfScoreSession(sess, equip) {
+  const st = (sess.sets || []).filter(s => Number(s.reps) > 0);
+  if (!st.length) return 0;
+  if (equip === "bodyweight" || equip === "band") return st.reduce((a, s) => a + (Number(s.reps) || 0), 0);
+  const w = Math.max(0, ...st.map(s => Number(s.weight) || 0));
+  const reps = st.filter(s => (Number(s.weight) || 0) === w).reduce((a, s) => a + (Number(s.reps) || 0), 0);
+  return w * 1000 + reps;
+}
+function mfGymCue(log, name, id, equipType) {
+  const ss = mfLiftSessions(log, name, id, 4);
+  const range = mfLiftRange(id, name);
+  const eq = equipType || ss[0] && ss[0].equipType || guessEquipType(name);
+  if (!ss.length) return {
+    range,
+    eq,
+    last: null,
+    setsLine: "",
+    line: `Aim for ${range.lo}–${range.hi}.`,
+    regress: ""
+  };
+  const last = ss[0];
+  const sets = (last.sets || []).filter(s => Number(s.reps) > 0);
+  const top = sets.length ? Math.max(...sets.map(s => Number(s.weight) || 0)) : 0;
+  const work = eq === "bodyweight" || eq === "band" || !(top > 0) ? sets : sets.filter(s => (Number(s.weight) || 0) === top);
+  const use = work.length ? work : sets;
+  const allTop = use.length > 0 && use.every(s => Number(s.reps) >= range.hi);
+  const minRep = use.length ? Math.min(...use.map(s => Number(s.reps) || 0)) : 0;
+  const db = mfIsDumbbellLift(name);
+  const lower = mfIsLowerLift(name);
+  let line = "";
+  if (eq === "bodyweight" || eq === "band" || !(top > 0)) {
+    line = allTop ? `All working sets hit ${range.hi}. A harder version, or a little load, is the next step.` : `Keep this and aim for ${Math.min(range.hi, minRep + 1)}. Last time the shortest set was ${minRep}.`;
+  } else if (allTop) {
+    const jump = lower ? 5 : 2.5;
+    const extra = lower ? "" : db ? " (or +5 lb if the next dumbbell jumps by 5)" : " (or +5 lb if that is the plate you have)";
+    line = `All working sets hit ${range.hi}. Add ${jump} lb today${extra}.`;
+  } else {
+    const aim = Math.min(range.hi, minRep + 1);
+    line = `Keep ${top} lb and aim for ${aim}. Last time a working set stopped at ${minRep}, short of ${range.hi}.`;
+  }
+  let regress = "";
+  if (ss.length >= 3) {
+    const a = mfScoreSession(ss[2], eq),
+      b = mfScoreSession(ss[1], eq),
+      c = mfScoreSession(ss[0], eq);
+    if (b < a && c < b) regress = "Two sessions in a row came in lighter than the one before. A lighter week on this lift is worth a thought, only if you want it.";
+  }
+  return {
+    range,
+    eq,
+    last,
+    top,
+    setsLine: mfSetLine(last.sets, eq),
+    line,
+    regress
+  };
+}
+function mfDaySchedule(profileId, dateStr) {
+  const d = new Date((dateStr || todayStr()) + "T12:00:00");
+  const sched = profileId && loadSchedule(profileId) || DEFAULT_SCHEDULE;
+  return sched[d.getDay()] || DEFAULT_SCHEDULE[d.getDay()] || {};
+}
+function mfPlannedNames(profileId, dateStr) {
+  const day = mfDaySchedule(profileId, dateStr);
+  if (!(day.type === "strength" || day.type === "str_cardio" || day.tab === "strength")) return [];
+  const plan = day.plan && PLAN_DAYS[day.plan];
+  if (!plan || !Array.isArray(plan.items)) return [];
+  return plan.items.map(it => it[0]).filter(Boolean);
+}
+function mfLastLiftValues(log, exName, skipWeeks) {
+  const prev = [...(log || [])].filter(e => e && e.type === "strength" && e.circuitItems && !(skipWeeks || []).includes(mfWeekOf(e.date))).sort((a, b) => new Date(b.date) - new Date(a.date));
+  for (const session of prev) {
+    const item = session.circuitItems.find(i => i && i.exercise === exName);
+    if (!item) continue;
+    return {
+      armMode: item.armMode || guessArmMode(exName),
+      sets: Array.isArray(item.sets) && item.sets.length ? item.sets.map((s, i) => ({
+        id: i + 1,
+        weight: s.weight || "",
+        reps: ""
+      })) : [{
+        id: 1,
+        weight: "",
+        reps: ""
+      }],
+      notes: "",
+      equipType: item.equipType || guessEquipType(exName),
+      trackingMode: item.trackingMode || guessTrackingMode(exName)
+    };
+  }
+  return null;
+}
+function mfStartRest(timerProps, sec) {
+  if (!timerProps || !timerProps.setRestSec) return;
+  const s = sec > 0 ? Math.round(sec) : Math.round((parseFloat(timerProps.restInput) || 2) * 60);
+  timerProps.setRestInput(String(Math.round(s / 60 * 10) / 10));
+  timerProps.setRestSec(s);
+  timerProps.setRestDone(false);
+  timerProps.setRestOn(true);
+  if (timerProps.restWarnedRef) timerProps.restWarnedRef.current = false;
+}
+function mfParseServingGrams(text, servingSize, unit) {
+  const u = String(unit || "").toLowerCase();
+  const n = Number(servingSize);
+  if (n > 0 && n < 5000 && (u === "" || u === "g" || u === "grm" || u === "gram" || u === "grams")) return Math.round(n * 10) / 10;
+  const t = String(text || "");
+  const m = t.match(/(\d+(?:[.,]\d+)?)\s*g(?:rams)?\b/i);
+  if (m) {
+    const g = Number(m[1].replace(",", "."));
+    if (g > 0 && g < 5000) return Math.round(g * 10) / 10;
+  }
+  return null;
+}
+function mfFoodFactor(food, qty, mode) {
+  const s = parseFloat(qty);
+  if (!(s > 0) || !food) return 0;
+  const lookup = food.source === "usda" || food.source === "openfoodfacts";
+  if (!lookup) return s;
+  if (mode === "serving" && Number(food.servingGrams) > 0) return s * Number(food.servingGrams) / 100;
+  return s / 100;
+}
+function mfMealBlock(time) {
+  const m = String(time || "").match(/(\d{1,2}):(\d{2})/);
+  if (!m) return "untimed";
+  const mins = Number(m[1]) * 60 + Number(m[2]);
+  if (mins < 11 * 60) return "morning";
+  if (mins < 15 * 60) return "midday";
+  if (mins < 17 * 60 + 30) return "afternoon";
+  return "evening";
+}
+const MF_BLOCK_LABEL = {
+  morning: "Morning",
+  midday: "Midday",
+  afternoon: "Afternoon",
+  evening: "Evening",
+  untimed: "Untimed"
+};
+function MfPrList({
+  log
+}) {
+  const [open, setOpen] = useState(false);
+  const rows = mfPrBook(log);
+  return React.createElement("div", {
+    className: "card",
+    "data-testid": "pr-list",
+    style: {
+      marginBottom: 12
+    }
+  }, React.createElement("button", {
+    className: "btn btn-secondary",
+    style: {
+      width: "100%",
+      justifyContent: "space-between",
+      minHeight: 48
+    },
+    onClick: () => setOpen(o => !o)
+  }, "Personal records", React.createElement("span", null, open ? "▲" : "▼")), open && (rows.length ? React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, rows.map(r => React.createElement("div", {
+    key: r.name,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      padding: "8px 0",
+      borderTop: "1px solid var(--border)",
+      fontFamily: "var(--font-mono)",
+      fontSize: 12
+    }
+  }, React.createElement("div", null, r.name, React.createElement("div", {
+    style: {
+      color: "var(--muted)",
+      fontSize: 10
+    }
+  }, fmtDate(r.date))), React.createElement("div", {
+    style: {
+      textAlign: "right",
+      color: "var(--label)"
+    }
+  }, r.bestW > 0 ? `${r.bestW} lb × ${r.bestR}` : `${r.bestR} reps`, r.bestE > 0 ? React.createElement("div", {
+    style: {
+      color: "var(--yellow)",
+      fontSize: 10
+    }
+  }, "est. 1RM ", r.bestE, " lb") : null)))) : React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontFamily: "var(--font-mono)",
+      fontSize: 12,
+      color: "var(--muted)"
+    }
+  }, "Log a workout and your bests show up here.")));
+}
 function mfDeloadPlan(p, st) {
   if (!p || !p.last) return null;
   const n = Math.max(1, Math.round(p.nWork * st.setsPct / 100));
@@ -6250,6 +6743,45 @@ function mfTodayLayout(id) {
   };
 }
 
+function MfMacroMeter({
+  protein,
+  proteinTarget,
+  netCarbs,
+  carbCap
+}) {
+  const rows = [];
+  if (proteinTarget > 0) {
+    const pct = Math.min(100, Math.round((protein || 0) / proteinTarget * 100));
+    const left = Math.max(0, Math.round(proteinTarget - (protein || 0)));
+    rows.push(["Protein", `${Math.round(protein || 0)} / ${proteinTarget} g`, left ? `${left} g to go` : "Target hit", pct, "#ec4899"]);
+  }
+  if (carbCap > 0) {
+    const over = (netCarbs || 0) > carbCap;
+    const pct = Math.min(100, Math.round((netCarbs || 0) / carbCap * 100));
+    rows.push(["Net carbs", `${Math.round(netCarbs || 0)} / ${carbCap} g`, over ? `${Math.round((netCarbs || 0) - carbCap)} g over the cap` : `${Math.max(0, Math.round(carbCap - (netCarbs || 0)))} g under the cap`, pct, over ? "var(--accent)" : "var(--teal)"]);
+  }
+  if (!rows.length) return null;
+  return React.createElement("div", {
+    className: "mf-meter",
+    "data-testid": "macro-meter"
+  }, rows.map(([label, val, note, pct, color]) => React.createElement("div", {
+    key: label,
+    className: "mf-meter-row"
+  }, React.createElement("div", {
+    className: "mf-meter-top"
+  }, React.createElement("span", null, label, " ", React.createElement("strong", {
+    style: {
+      color: "var(--text)"
+    }
+  }, val)), React.createElement("span", null, note)), React.createElement("div", {
+    className: "mf-bar"
+  }, React.createElement("div", {
+    style: {
+      width: `${pct}%`,
+      background: color
+    }
+  })))));
+}
 function MfPlanCard({ session }) {
   const key = session && session.plan;
   const d = key && PLAN_DAYS[key];
@@ -6317,6 +6849,11 @@ function TodayScreen({
   const [amForce, setAmForce] = useState(false);
   const [todayLayout, setTodayLayout] = useState(() => mfTodayLayout(profileId));
   const [showCustomize, setShowCustomize] = useState(false);
+  const [planRev, setPlanRev] = useState(0);
+  const [nudgeOff, setNudgeOff] = useState(() => {
+    const o = profileId ? loadLS(`mf_${profileId}_protein_nudge`, null) : null;
+    return !!(o && o.date === todayStr());
+  });
   const saveTodayLayout = l => {
     setTodayLayout(l);
     if (profileId) saveLS(pk(profileId, "today_layout"), l);
@@ -6500,7 +7037,7 @@ function TodayScreen({
   const hour = now.getHours();
   const dayNum = now.getDay();
   const today = todayStr();
-  const schedule = loadSchedule(profileId) || DEFAULT_SCHEDULE;
+  const schedule = (planRev >= 0 && loadSchedule(profileId)) || DEFAULT_SCHEDULE;
   const todaySession = schedule[dayNum] || DEFAULT_SCHEDULE[dayNum];
   const todayLogged = log.find(e => e.date === today && !mfIsSauna(e));
   const sessionDone = !!todayLogged;
@@ -6536,6 +7073,7 @@ function TodayScreen({
   const nutriSet = profileId ? loadLS(pk(profileId, "nutri_settings"), {}) : {};
   const glp1 = profile?.glp1 === "yes" || profile?.glp1 === "maintaining";
   const proteinToday = foodLog.filter(e => e.date === today).reduce((a, e) => a + (e.protein || 0), 0);
+  const carbsToday = foodLog.filter(e => e.date === today).reduce((a, e) => a + (Number(e.netCarbs) || 0), 0);
   const nutriTargets = nutriSet.goalWeight ? calcTargets(parseFloat(nutriSet.goalWeight), nutriSet.proteinMultiplier || 0.9, nutriSet.goalMode || "recomp", glp1, nutriSet) : null;
   const proteinTarget = nutriTargets?.protein || 0;
   const proteinPct = proteinTarget > 0 ? Math.min(100, Math.round(proteinToday / proteinTarget * 100)) : 0;
@@ -8304,7 +8842,50 @@ function TodayScreen({
         background: "var(--green)"
       }
     })))));
-    S.session = React.createElement(React.Fragment, null, S.session, React.createElement(MfPlanCard, {
+    const proteinLeft = Math.max(0, Math.round(proteinTarget - proteinToday));
+    const showProteinNudge = hour >= 18 && !nudgeOff && !isFastDay && proteinTarget > 0 && proteinToday < proteinTarget * 0.75 && proteinLeft >= 20;
+    S.session = React.createElement(React.Fragment, null, React.createElement(PlanUpdateBanner, {
+      profileId: profileId,
+      onChanged: () => setPlanRev(n => n + 1)
+    }), React.createElement(MfMacroMeter, {
+      protein: proteinToday,
+      proteinTarget: proteinTarget,
+      netCarbs: carbsToday,
+      carbCap: nutriTargets ? nutriTargets.netCarbs : 0
+    }), showProteinNudge && React.createElement("div", {
+      className: "card",
+      "data-testid": "protein-nudge",
+      style: {
+        borderColor: "#ec4899",
+        marginBottom: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        fontFamily: "var(--font-head)",
+        fontSize: 16,
+        fontWeight: 700,
+        marginBottom: 4
+      }
+    }, "Protein is still short tonight"), React.createElement("div", {
+      style: {
+        fontFamily: "var(--font-body)",
+        fontSize: 14,
+        color: "var(--label)",
+        lineHeight: 1.5
+      }
+    }, "About ", proteinLeft, " g of protein left to reach today's target. Eggs, meat, fish, or a shake at dinner would close most of it."), React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      style: {
+        marginTop: 8,
+        minHeight: 48
+      },
+      onClick: () => {
+        if (profileId) saveLS(`mf_${profileId}_protein_nudge`, {
+          date: today
+        });
+        setNudgeOff(true);
+      }
+    }, "Got it")), S.session, React.createElement(MfPlanCard, {
       session: todaySession
     }));
     S.stats = React.createElement(React.Fragment, null, React.createElement("div", {
@@ -9564,6 +10145,22 @@ function App() {
   useEffect(() => {
     saveLS("mf_profiles", profiles);
   }, [profiles]);
+  useEffect(() => {
+    setProfiles(prev => {
+      let changed = false;
+      const next = prev.map(p => {
+        if (p && typeof p.avoid === "string" && p.avoid.trim() === OLD_DEFAULT_AVOID) {
+          changed = true;
+          return {
+            ...p,
+            avoid: DEFAULT_AVOID
+          };
+        }
+        return p;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
   useEffect(() => {
     saveLS("mf_active_profile", activeProfileId);
   }, [activeProfileId]);
@@ -11151,6 +11748,235 @@ function ExerciseSearch({
 }
 const STORAGE_KEY_STR_TEMPLATES = "mf_str_templates";
 const STORAGE_KEY_STR_PACKAGES = "mf_str_packages";
+function MfRestPresets({
+  timerProps
+}) {
+  if (!timerProps) return null;
+  const cur = Math.round((parseFloat(timerProps.restInput) || 2) * 60);
+  return React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8,
+      width: "100%"
+    }
+  }, [[60, "60s"], [90, "90s"], [120, "2m"], [180, "3m"]].map(([s, label]) => React.createElement("button", {
+    key: s,
+    type: "button",
+    className: "btn rest-preset",
+    "data-testid": "rest-" + s,
+    style: {
+      background: cur === s ? "var(--accent)" : "var(--surface)",
+      color: cur === s ? "#fff" : "var(--text)",
+      border: "1px solid var(--border)"
+    },
+    onClick: () => mfStartRest(timerProps, s)
+  }, label)));
+}
+function MfGymSets({
+  item,
+  fine,
+  setFine,
+  warn,
+  setWarn,
+  updateSet,
+  addSet,
+  removeSet,
+  timerProps
+}) {
+  const numeric = item.equipType === "weight" || item.equipType === "cable" || !item.equipType;
+  const step = fine ? 2.5 : 5;
+  const bump = (s, field, delta) => {
+    const cur = Number(s[field]) || 0;
+    const next = Math.max(0, Math.round((cur + delta) * 10) / 10);
+    updateSet(item.id, s.id, field, next ? String(next) : "");
+  };
+  const save = s => {
+    const w = String(s.weight || "").trim();
+    const r = String(s.reps || "").trim();
+    if ((item.equipType !== "bodyweight" && w || item.equipType === "bodyweight") && !r || w && !r) {
+      setWarn(item.id + ":" + s.id);
+      return;
+    }
+    if (!r) {
+      setWarn(item.id + ":" + s.id);
+      return;
+    }
+    updateSet(item.id, s.id, "saved", true);
+    setWarn("");
+    mfStartRest(timerProps);
+  };
+  return React.createElement("div", {
+    "data-testid": "gym-sets"
+  }, (Array.isArray(item.sets) ? item.sets : []).map((s, si) => React.createElement("div", {
+    key: s.id,
+    style: {
+      padding: "10px 0",
+      borderBottom: "1px solid #1f2228"
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, React.createElement("span", {
+    className: "set-num",
+    style: {
+      fontSize: 14
+    }
+  }, "Set ", si + 1, s.saved ? " · saved" : ""), (item.sets || []).length > 1 && React.createElement("button", {
+    type: "button",
+    className: "btn btn-ghost",
+    style: {
+      minHeight: 48
+    },
+    onClick: () => removeSet(item.id, s.id)
+  }, "Remove")), item.equipType === "band" && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      marginTop: 8
+    }
+  }, BAND_LEVELS.map(bl => React.createElement("button", {
+    key: bl.key,
+    type: "button",
+    onClick: () => updateSet(item.id, s.id, "weight", bl.key),
+    style: {
+      minHeight: 48,
+      padding: "8px 12px",
+      fontSize: 14,
+      fontFamily: "var(--font-mono)",
+      border: `1px solid ${s.weight === bl.key ? "var(--teal)" : "var(--border)"}`,
+      borderRadius: 8,
+      cursor: "pointer",
+      background: s.weight === bl.key ? "var(--teal)" : "var(--surface)",
+      color: s.weight === bl.key ? "#111318" : "var(--text)"
+    }
+  }, bl.label))), numeric && React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, React.createElement("label", null, "Weight (lb)"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, React.createElement("button", {
+    type: "button",
+    className: "gym-step",
+    "data-testid": "w-minus",
+    onClick: () => bump(s, "weight", -step)
+  }, "−"), React.createElement("input", {
+    className: "gym-num",
+    "data-testid": "weight-input",
+    type: "number",
+    inputMode: "decimal",
+    min: "0",
+    step: String(step),
+    value: s.weight,
+    onChange: e => updateSet(item.id, s.id, "weight", e.target.value)
+  }), React.createElement("button", {
+    type: "button",
+    className: "gym-step",
+    "data-testid": "w-plus",
+    onClick: () => bump(s, "weight", step)
+  }, "+"), React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    "data-testid": "lb-step",
+    style: {
+      minHeight: 48
+    },
+    onClick: () => setFine(!fine)
+  }, fine ? "±2.5" : "±5"))), React.createElement("label", {
+    style: {
+      marginTop: 8
+    }
+  }, item.trackingMode === "time" ? "Seconds" : "Reps"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, React.createElement("button", {
+    type: "button",
+    className: "gym-step",
+    "data-testid": "r-minus",
+    onClick: () => bump(s, "reps", -1)
+  }, "−"), React.createElement("input", {
+    className: "gym-num",
+    "data-testid": "reps-input",
+    type: "number",
+    inputMode: "numeric",
+    min: "0",
+    value: s.reps,
+    onChange: e => updateSet(item.id, s.id, "reps", e.target.value)
+  }), React.createElement("button", {
+    type: "button",
+    className: "gym-step",
+    "data-testid": "r-plus",
+    onClick: () => bump(s, "reps", 1)
+  }, "+"), item.trackingMode === "time" && s.reps ? React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 12,
+      color: "var(--muted)"
+    }
+  }, fmtSeconds(s.reps)) : null), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      marginTop: 8
+    }
+  }, React.createElement("label", {
+    style: {
+      margin: 0
+    }
+  }, "Left in the tank"), React.createElement("input", {
+    type: "number",
+    inputMode: "numeric",
+    min: "0",
+    max: "10",
+    placeholder: "–",
+    "aria-label": "Reps in reserve",
+    value: s.rir ?? "",
+    style: {
+      width: 72,
+      minHeight: 48
+    },
+    onChange: e => updateSet(item.id, s.id, "rir", e.target.value)
+  })), React.createElement("button", {
+    type: "button",
+    className: "btn btn-teal gym-save",
+    "data-testid": "save-set",
+    style: {
+      width: "100%",
+      justifyContent: "center",
+      marginTop: 8
+    },
+    onClick: () => save(s)
+  }, s.saved ? "Saved · rest again" : "Save set"), warn === item.id + ":" + s.id && React.createElement("div", {
+    "data-testid": "set-warn",
+    style: {
+      color: "var(--accent)",
+      fontFamily: "var(--font-mono)",
+      fontSize: 13,
+      marginTop: 6
+    }
+  }, "Add the reps before saving this set."))), React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    style: {
+      minHeight: 48,
+      marginTop: 10
+    },
+    onClick: () => addSet(item.id)
+  }, "Add set"));
+}
 function StrengthTab({
   exercises,
   onLog,
@@ -11212,7 +12038,16 @@ function StrengthTab({
     equipType: equipType || guessEquipType(exercise),
     trackingMode: trackingMode || guessTrackingMode(exercise)
   });
-  const [circuit, setCircuit] = useState(() => draft?.circuit || []);
+  const buildPlanned = d => {
+    if ((log || []).some(e => e && e.date === d && e.type === "strength" && Array.isArray(e.circuitItems) && e.circuitItems.length)) return [];
+    return mfPlannedNames(profileId, d).map(name => {
+      const last = mfLastLiftValues(log, name, dlSet.weeks);
+      return last ? makeStrItem(name, last.armMode, last.sets, "", last.equipType, last.trackingMode) : makeStrItem(name);
+    });
+  };
+  const [circuit, setCircuit] = useState(() => draft?.circuit?.length ? draft.circuit : buildPlanned(mfDraftDate(draft)));
+  const [fineLb, setFineLb] = useState({});
+  const [setWarn, setSetWarn] = useState("");
   const [prep, setPrep] = useState(() => {
     const p = loadLS(profileId ? pk(profileId, "str_prep") : "_str_prep", null) || {};
     return {
@@ -11417,7 +12252,12 @@ function StrengthTab({
       setError("Add at least one exercise.");
       return;
     }
-    const hasData = circuit.some(i => (Array.isArray(i.sets) ? i.sets : []).some(s => s.weight && s.reps));
+    const missingReps = circuit.some(i => (Array.isArray(i.sets) ? i.sets : []).some(s => String(s.weight || "").trim() && !String(s.reps || "").trim()));
+    if (missingReps) {
+      setError("A set has weight but no reps. Add the reps, or clear the weight.");
+      return;
+    }
+    const hasData = circuit.some(i => (Array.isArray(i.sets) ? i.sets : []).some(s => s.weight && s.reps || i.equipType === "bodyweight" && s.reps));
     if (!hasData) {
       setError("Fill in weight and reps for at least one set.");
       return;
@@ -11734,7 +12574,25 @@ function StrengthTab({
     onAdd: addToCircuit,
     onNewExercise: onNewExercise,
     placeholder: "Search or type new exercise..."
-  })), circuit.length === 0 ? React.createElement("div", {
+  }), mfPlannedNames(profileId, date).length > 0 && React.createElement("button", {
+    className: "btn btn-teal",
+    "data-testid": "load-today",
+    style: {
+      width: "100%",
+      justifyContent: "center",
+      minHeight: 48,
+      marginTop: 10
+    },
+    onClick: () => {
+      const names = mfPlannedNames(profileId, date);
+      if (!names.length) return;
+      if (circuit.length && !window.confirm("Replace the exercises on screen with today's plan?")) return;
+      setCircuit(names.map(name => {
+        const last = mfLastLiftValues(log, name, dlSet.weeks);
+        return last ? makeStrItem(name, last.armMode, last.sets, "", last.equipType, last.trackingMode) : makeStrItem(name);
+      }));
+    }
+  }, "Load today's lifts")), circuit.length === 0 ? React.createElement("div", {
     className: "card",
     style: {
       textAlign: "center",
@@ -11799,7 +12657,14 @@ function StrengthTab({
         marginRight: 8,
         fontSize: 13
       }
-    }, "#", idx + 1), item.exercise, mfAvoidTag(item.exercise))), React.createElement("div", {
+    }, "#", idx + 1), item.exercise, mfAvoidTag(item.exercise), (() => {
+      const beat = mfPrBeat(log, item.exercise, item.sets);
+      return beat ? React.createElement("span", {
+        className: "mf-pr",
+        "data-testid": "pr-badge",
+        title: beat.beatsW ? "Best weight" : "Best estimated 1RM"
+      }, "PR!") : null;
+    })())), React.createElement("div", {
       style: {
         display: "flex",
         gap: 4,
@@ -11810,6 +12675,7 @@ function StrengthTab({
       onClick: () => removeFromCircuit(item.id)
     }, React.createElement(IconTrash, null)))), (() => {
       const ol = getInlineOverload(item.exercise);
+      const g = mfGymCue(log, item.exercise, profileId, item.equipType);
       const p = mfProgCue(log, item.exercise, profileId, item.equipType, item.trackingMode);
       const dl = inDeload ? mfDeloadPlan(p, dlSet) : null;
       const rOpen = rangeOpen === item.id,
@@ -11841,15 +12707,29 @@ function StrengthTab({
       }));
       return React.createElement("div", {
         className: "last-session-line"
-      }, ol && React.createElement("div", null, React.createElement("span", {
+      }, g.last && g.setsLine && React.createElement("div", {
+        "data-testid": "last-sets"
+      }, React.createElement("span", {
         style: {
           color: "var(--muted)"
         }
-      }, "Last (", fmtDate(ol.date), "): "), React.createElement("span", {
+      }, "Last (", fmtDate(g.last.date), "): "), React.createElement("span", {
         style: {
           color: "var(--label)"
         }
-      }, ol.setStr)), inDeload ? React.createElement("div", {
+      }, g.setsLine)), !inDeload && g.line && React.createElement("div", {
+        "data-testid": "gym-cue",
+        style: {
+          color: "var(--text)",
+          fontWeight: 700
+        }
+      }, g.line), !inDeload && g.regress && React.createElement("div", {
+        "data-testid": "regress-note",
+        style: {
+          color: "var(--yellow)",
+          marginTop: 4
+        }
+      }, g.regress), inDeload ? React.createElement("div", {
         style: {
           color: "var(--teal)"
         }
@@ -11861,14 +12741,7 @@ function StrengthTab({
           fontSize: 9
         },
         onClick: () => updateItem(item.id, "sets", dl.sets)
-      }, "Apply to these sets")) : p.t ? React.createElement("div", {
-        style: {
-          color: p.c,
-          fontWeight: p.status === "earned" ? 700 : 400
-        }
-      }, p.status === "earned" ? "▲ " : "", p.t) : ol && ol.ready ? React.createElement("div", {
-        className: "last-session-bump"
-      }, "▲ Ready to progress") : null, React.createElement("div", null, React.createElement("button", {
+      }, "Apply to these sets")) : null, React.createElement("div", null, React.createElement("button", {
         className: "btn btn-ghost btn-sm",
         style: {
           padding: "1px 6px",
@@ -11877,7 +12750,7 @@ function StrengthTab({
         },
         "aria-expanded": rOpen,
         onClick: () => setRangeOpen(rOpen ? null : item.id)
-      }, p.range.src === "none" ? "No rep range set" : `Range ${p.range.lo === p.range.hi ? p.range.hi : `${p.range.lo}–${p.range.hi}`}${unit}${p.range.ceiling ? ` · ceiling ${p.range.ceiling} lb` : ""}`, " · ", rOpen ? "done" : p.range.src === "none" ? "set one" : "change")), rOpen && React.createElement("div", {
+      }, `Range ${g.range.lo}–${g.range.hi}${unit}${g.range.src === "plan" ? " · plan" : g.range.src === "default" ? " · usual" : ""}`, " · ", rOpen ? "done" : "change")), rOpen && React.createElement("div", {
         style: {
           padding: "4px 0 2px"
         }
@@ -11887,7 +12760,7 @@ function StrengthTab({
           fontSize: 10,
           marginBottom: 4
         }
-      }, "With a range, load goes up only after every working set reaches the top two sessions in a row.", p.usual ? ` Last time your working sets were mostly ${p.usual}${unit}.` : ""), React.createElement("div", {
+      }, "When every working set hits the top, add weight next time. Until then, keep the weight and add a rep.", p.usual ? ` Last time your working sets were mostly ${p.usual}${unit}.` : ""), React.createElement("div", {
         style: {
           display: "flex",
           gap: 6,
@@ -11982,106 +12855,20 @@ function StrengthTab({
         fontSize: 10,
         color: "var(--muted)"
       }
-    }, "→ enter seconds per set")), React.createElement("table", {
-      className: "sets-table",
-      style: {
-        marginBottom: 8
-      }
-    }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Set"), item.equipType !== "bodyweight" && React.createElement("th", null, EQUIP_TYPES.find(e => e.key === item.equipType)?.weightLabel || "Weight (lbs)"), React.createElement("th", null, item.trackingMode === "time" ? "Duration" : `Reps ${item.armMode === "single" ? "(single)" : "(double)"}`), React.createElement("th", {
-      title: "Reps in reserve: clean reps you had left"
-    }, "RIR"), React.createElement("th", null))), React.createElement("tbody", null, (Array.isArray(item.sets) ? item.sets : []).map((s, si) => React.createElement("tr", {
-      key: s.id
-    }, React.createElement("td", null, React.createElement("span", {
-      className: "set-num"
-    }, "#", si + 1)), item.equipType === "band" && React.createElement("td", null, React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 3,
-        flexWrap: "wrap"
-      }
-    }, BAND_LEVELS.map(bl => React.createElement("button", {
-      key: bl.key,
-      onClick: () => updateSetInItem(item.id, s.id, "weight", bl.key),
-      style: {
-        padding: "3px 7px",
-        fontSize: 10,
-        fontFamily: "var(--font-mono)",
-        border: `1px solid ${s.weight === bl.key ? "var(--teal)" : "var(--border)"}`,
-        borderRadius: 3,
-        cursor: "pointer",
-        background: s.weight === bl.key ? "var(--teal)" : "var(--surface)",
-        color: s.weight === bl.key ? "#111318" : "var(--muted)",
-        transition: "all .12s"
-      }
-    }, bl.label)))), item.equipType === "bodyweight" && null, (item.equipType === "weight" || item.equipType === "cable" || !item.equipType) && React.createElement("td", null, React.createElement("input", {
-      type: "number",
-      min: "0",
-      placeholder: "0",
-      value: s.weight,
-      onChange: e => updateSetInItem(item.id, s.id, "weight", e.target.value)
-    })), item.trackingMode === "time" ? React.createElement("td", null, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 4
-      }
-    }, React.createElement("input", {
-      type: "number",
-      min: "0",
-      placeholder: "30",
-      value: s.reps,
-      onChange: e => updateSetInItem(item.id, s.id, "reps", e.target.value),
-      style: {
-        width: 54
-      }
-    }), React.createElement("span", {
-      style: {
-        fontFamily: "var(--font-mono)",
-        fontSize: 10,
-        color: "var(--muted)"
-      }
-    }, s.reps ? fmtSeconds(s.reps) : "sec"))) : React.createElement("td", null, React.createElement("input", {
-      type: "number",
-      min: "0",
-      placeholder: "0",
-      value: s.reps,
-      onChange: e => updateSetInItem(item.id, s.id, "reps", e.target.value)
-    })), React.createElement("td", null, React.createElement("input", {
-      type: "number",
-      min: "0",
-      max: "10",
-      placeholder: "–",
-      value: s.rir ?? "",
-      style: {
-        width: 52
-      },
-      onChange: e => updateSetInItem(item.id, s.id, "rir", e.target.value)
-    })), React.createElement("td", null, (Array.isArray(item.sets) ? item.sets : []).length > 1 && React.createElement("button", {
-      className: "btn btn-ghost btn-sm",
-      onClick: () => removeSetFromItem(item.id, s.id)
-    }, React.createElement(IconTrash, null))))))), React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        marginBottom: 12
-      }
-    }, React.createElement("button", {
-      className: "btn btn-sm",
-      onClick: () => addSetToItem(item.id),
-      style: {
-        background: "var(--surface)",
-        border: "1px solid var(--teal)",
-        color: "var(--teal)",
-        fontSize: 11
-      }
-    }, React.createElement(IconPlus, null), " Add Set"), (Array.isArray(item.sets) ? item.sets : []).length > 1 && React.createElement("span", {
-      style: {
-        fontFamily: "var(--font-mono)",
-        fontSize: 10,
-        color: "var(--muted)"
-      }
-    }, (Array.isArray(item.sets) ? item.sets : []).length, " sets · ", item.equipType === "bodyweight" ? `${(Array.isArray(item.sets) ? item.sets : []).reduce((a, s) => a + (Number(s.reps) || 0), 0)} total reps` : ((Array.isArray(item.sets) ? item.sets : []).some(s => s.weight) ? `${Math.min(...(Array.isArray(item.sets) ? item.sets : []).filter(s => s.weight).map(s => Number(s.weight) || 0))}–${Math.max(...(Array.isArray(item.sets) ? item.sets : []).filter(s => s.weight).map(s => Number(s.weight) || 0))} lbs` : "no weights yet"))), React.createElement("div", null, React.createElement("label", null, "Exercise Notes (optional)"), React.createElement("input", {
+    }, "→ enter seconds per set")), React.createElement(MfGymSets, {
+        item: item,
+        fine: !!fineLb[item.id],
+        setFine: v => setFineLb(m => ({
+          ...m,
+          [item.id]: v
+        })),
+        warn: setWarn,
+        setWarn: setSetWarn,
+        updateSet: updateSetInItem,
+        addSet: addSetToItem,
+        removeSet: removeSetFromItem,
+        timerProps: timerProps
+      }), React.createElement("div", null, React.createElement("label", null, "Exercise Notes (optional)"), React.createElement("input", {
       type: "text",
       placeholder: "Form cues, feel, adjustments...",
       value: item.notes,
@@ -12171,7 +12958,42 @@ function StrengthTab({
   }, React.createElement(IconSettings, null), " Manage"), React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSubmit
-  }, React.createElement(IconCheck, null), " Log Workout"))), React.createElement(TabCoach, {
+  }, React.createElement(IconCheck, null), " Log Workout"))), React.createElement(MfPrList, {
+    log: log
+  }), timerProps && (timerProps.restOn || timerProps.restDone) && React.createElement("div", {
+    className: "mf-rest-dock",
+    "data-testid": "rest-dock"
+  }, React.createElement("div", {
+    className: "mf-rest-dock-inner"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 12,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "var(--muted)"
+    }
+  }, timerProps.restDone ? "Rest done" : "Rest"), React.createElement("div", {
+    "data-testid": "rest-readout",
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 36,
+      fontWeight: 900,
+      color: timerProps.restDone ? "var(--green)" : "var(--text)"
+    }
+  }, String(Math.floor((timerProps.restSec || 0) / 60)).padStart(2, "0"), ":", String((timerProps.restSec || 0) % 60).padStart(2, "0"))), React.createElement(MfRestPresets, {
+    timerProps: timerProps
+  }))), React.createElement("div", {
+    style: {
+      height: timerProps && (timerProps.restOn || timerProps.restDone) ? 150 : 0
+    }
+  }), React.createElement(TabCoach, {
     profile: profile,
     log: log,
     tabType: "strength",
@@ -12291,10 +13113,8 @@ function WorkoutTimers({
     return total > 0 ? Math.round(restSec / total * 100) : 0;
   };
   return React.createElement("div", {
+    className: "mf-timers",
     style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 12,
       marginBottom: 16
     }
   }, React.createElement("div", {
@@ -12423,7 +13243,9 @@ function WorkoutTimers({
       fontSize: 11,
       color: "var(--green)"
     }
-  }, "✓ Rest done"))));
+  }, "✓ Rest done")), React.createElement(MfRestPresets, {
+    timerProps: timerProps
+  })));
 }
 const STORAGE_KEY_KB_TEMPLATES = "mf_kb_templates";
 function TrainingTab({
@@ -13059,7 +13881,14 @@ function KBTab({
         marginRight: 8,
         fontSize: 13
       }
-    }, "#", idx + 1), item.exercise, mfAvoidTag(item.exercise))), React.createElement("div", {
+    }, "#", idx + 1), item.exercise, mfAvoidTag(item.exercise), (() => {
+      const beat = mfPrBeat(log, item.exercise, item.sets);
+      return beat ? React.createElement("span", {
+        className: "mf-pr",
+        "data-testid": "pr-badge",
+        title: beat.beatsW ? "Best weight" : "Best estimated 1RM"
+      }, "PR!") : null;
+    })())), React.createElement("div", {
       style: {
         display: "flex",
         gap: 4,
@@ -17618,6 +18447,7 @@ function HIITTab({
     setNotes(tpl.notes || "");
     setShowMyPkgs(false);
   };
+  const [hiitHold, setHiitHold] = useState("");
   const handleSubmit = () => {
     const valid = intervals.filter(i => i.peakHR || i.recovHR);
     setBt(null);
@@ -17625,6 +18455,21 @@ function HIITTab({
       setError("Log at least one interval with HR data.");
       return;
     }
+    const msgs = [];
+    intervals.forEach((iv, idx) => {
+      const peak = Number(iv.peakHR),
+        rec = Number(iv.recovHR);
+      if (rec && peak && rec > peak) msgs.push(`Boost ${idx + 1}: recovery heart rate is higher than the peak.`);
+      if (rec && rec < 60) msgs.push(`Boost ${idx + 1}: recovery heart rate under 60 looks too low.`);
+    });
+    if (Number(distance) > 0 && !(Number(totalMin) > 0)) msgs.push("Distance is filled in, but total time is 0.");
+    const key = msgs.join("|");
+    if (msgs.length && hiitHold !== key) {
+      setHiitHold(key);
+      setError(msgs.join(" ") + " Fix it, or tap Log HIIT again to save anyway.");
+      return;
+    }
+    setHiitHold("");
     setError("");
     onLog({
       type: "hiit",
@@ -17873,6 +18718,7 @@ function HIITTab({
   }, machines.map(m => React.createElement("option", {
     key: m
   }, m)))), React.createElement("div", null, React.createElement("label", null, "Total Session (min)"), React.createElement("input", {
+    "data-testid": "hiit-minutes",
     type: "number",
     min: "1",
     placeholder: "18",
@@ -18067,6 +18913,7 @@ function HIITTab({
     }, React.createElement("td", null, React.createElement("span", {
       className: "set-num"
     }, "#", i + 1)), React.createElement("td", null, React.createElement("input", {
+      "data-testid": i === 0 ? "hiit-peak" : undefined,
       type: "number",
       min: "80",
       max: "220",
@@ -18077,8 +18924,9 @@ function HIITTab({
         borderColor: pkOk ? "var(--green)" : "var(--accent)"
       } : {}
     })), React.createElement("td", null, React.createElement("input", {
+      "data-testid": i === 0 ? "hiit-recov" : undefined,
       type: "number",
-      min: "80",
+      min: "40",
       max: "200",
       placeholder: "135",
       value: iv.recovHR,
@@ -18160,6 +19008,7 @@ function HIITTab({
       gap: 8
     }
   }, React.createElement("input", {
+    "data-testid": "hiit-distance",
     type: "number",
     min: "0",
     step: "0.01",
@@ -18242,6 +19091,7 @@ function HIITTab({
   }, React.createElement("div", null, React.createElement("div", {
     className: "submit-info"
   }, React.createElement("strong", null, machine), " · ", intervals.length, " boosts · ", workSec, "s hold · ", fmtDate(date)), error && React.createElement("div", {
+    "data-testid": "hiit-error",
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 11,
@@ -21676,7 +22526,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 41 · Nov 13";
+const MF_BUILD_LABEL = "Build 42 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -22483,7 +23333,9 @@ function DashboardTab({
       borderRadius: 4
     },
     onClick: anyOpen ? collapseAll : expandAll
-  }, anyOpen ? "⊖ Collapse All" : "⊕ Expand All")), React.createElement(MfGuard, {
+  }, anyOpen ? "⊖ Collapse All" : "⊕ Expand All")), React.createElement(MfPrList, {
+    log: log
+  }), React.createElement(MfGuard, {
     name: "Today"
   }, React.createElement(WatchTodayStrip, {
     profileId: profileId
@@ -24757,6 +25609,76 @@ function QuickLog({
     onClick: () => setItems(null)
   }, "Discard")))));
 }
+function MealRepeat({
+  foodLog,
+  viewDate,
+  onCopy
+}) {
+  const yest = mfDayShift(viewDate, -1);
+  const [day, setDay] = useState(yest);
+  const rows = (foodLog || []).filter(e => e && e.date === day && e.date !== viewDate);
+  const blocks = ["morning", "midday", "afternoon", "evening", "untimed"].map(b => ({
+    b,
+    n: rows.filter(e => mfMealBlock(e.time) === b).length
+  })).filter(x => x.n);
+  return React.createElement("div", {
+    "data-testid": "meal-repeat",
+    style: {
+      margin: "8px 0 10px"
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      marginBottom: 8
+    }
+  }, React.createElement("label", {
+    style: {
+      margin: 0
+    }
+  }, "Repeat a meal from"), React.createElement("input", {
+    "data-testid": "repeat-date",
+    type: "date",
+    value: day,
+    onChange: e => setDay(e.target.value || yest),
+    style: {
+      width: "auto",
+      minHeight: 48
+    }
+  })), rows.length > 0 && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    "data-testid": "same-as-day",
+    style: {
+      minHeight: 48
+    },
+    onClick: () => onCopy(rows.map(e => ({
+      ...e,
+      id: Date.now() + Math.random(),
+      date: viewDate
+    })))
+  }, day === yest ? "Same as yesterday" : "Same as that day", " (", rows.length, ")"), blocks.map(x => React.createElement("button", {
+    key: x.b,
+    type: "button",
+    className: "btn btn-secondary",
+    "data-testid": "repeat-" + x.b,
+    style: {
+      minHeight: 48
+    },
+    onClick: () => onCopy(rows.filter(e => mfMealBlock(e.time) === x.b).map(e => ({
+      ...e,
+      id: Date.now() + Math.random(),
+      date: viewDate
+    })))
+  }, MF_BLOCK_LABEL[x.b], " · ", x.n))));
+}
 function NutritionTab({
   profile,
   profileId
@@ -24823,6 +25745,21 @@ function NutritionTab({
   const scanTimerRef = useRef(null);
   const [selFood, setSelFood] = useState(null);
   const [serving, setServing] = useState("1");
+  const [serveMode, setServeMode] = useState("unit");
+  const selectFood = food => {
+    setSelFood(food);
+    const lookup = food && (food.source === "usda" || food.source === "openfoodfacts");
+    if (lookup && Number(food.servingGrams) > 0) {
+      setServeMode("serving");
+      setServing("1");
+    } else if (lookup) {
+      setServeMode("grams");
+      setServing("100");
+    } else {
+      setServeMode("unit");
+      setServing("1");
+    }
+  };
   const [entryTime, setEntryTime] = useState(currentTimeStr());
   const [addMode, setAddMode] = useState("search");
   const [ce, setCe] = useState({
@@ -24974,7 +25911,8 @@ function NutritionTab({
       name: `${f.description}${brand ? " — " + brand : ""} (USDA, per 100 g)`,
       protein: r(n[1003]), fat: r(n[1004]), carbs: r(n[1005]), fiber: r(n[1079]), cal: Math.round(cal),
       unit: "100 g", source: "usda", fdcId: f.fdcId, branded: !!brandedFlag,
-      servingText: brandedFlag && f.householdServingFullText ? `${f.householdServingFullText}${f.servingSize ? " = " + Math.round(f.servingSize * 10) / 10 + " " + String(f.servingSizeUnit || "g").toLowerCase().replace("grm", "g") : ""}` : ""
+      servingGrams: mfParseServingGrams(f.householdServingFullText, f.servingSize, f.servingSizeUnit),
+      servingText: brandedFlag && f.householdServingFullText ? `${f.householdServingFullText}${f.servingSize ? " = " + Math.round(f.servingSize * 10) / 10 + " " + String(f.servingSizeUnit || "g").toLowerCase().replace("grm", "g") : ""}` : (f.servingSize ? `${Math.round(f.servingSize * 10) / 10} ${String(f.servingSizeUnit || "g").toLowerCase().replace("grm", "g")}` : "")
     };
   };
   const searchUsda = async () => {
@@ -25017,12 +25955,12 @@ function NutritionTab({
           const data = await res.json();
           const hit = (data.foods || []).find(f => norm(f.gtinUpc) === norm(code));
           const food = hit && usdaParse(hit, true);
-          if (food) { setSelFood(food); setServing("1"); setScanMsg("Found in USDA: " + food.name.replace(" (USDA, per 100 g)", "")); setScanBusy(false); return; }
+          if (food) { selectFood(food); setScanMsg("Found in USDA: " + food.name.replace(" (USDA, per 100 g)", "")); setScanBusy(false); return; }
         }
       } catch (e) {}
       // 2) Open Food Facts
       try {
-        const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriments,serving_size`);
+        const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriments,serving_size,serving_quantity`);
         if (res.ok) {
           const data = await res.json();
           const pr = data && data.status === 1 ? data.product : null;
@@ -25036,9 +25974,10 @@ function NutritionTab({
                 name: `${pr.product_name || "Product " + code}${brand ? " — " + brand : ""} (Open Food Facts, per 100 g)`,
                 protein: r(Number(nu["proteins_100g"])), fat: r(Number(nu["fat_100g"])), carbs: r(Number(nu["carbohydrates_100g"])), fiber: r(Number(nu["fiber_100g"])), cal: Math.round(Number(cal)),
                 unit: "100 g", source: "openfoodfacts", fdcId: "off-" + code, branded: true,
+                servingGrams: mfParseServingGrams(pr.serving_size, pr.serving_quantity, "g"),
                 servingText: pr.serving_size ? String(pr.serving_size) : ""
               };
-              setSelFood(food); setServing("1"); setScanMsg("Found in Open Food Facts: " + (pr.product_name || code)); setScanBusy(false); return;
+              selectFood(food); setScanMsg("Found in Open Food Facts: " + (pr.product_name || code)); setScanBusy(false); return;
             }
           }
         }
@@ -25073,21 +26012,28 @@ function NutritionTab({
   const bcClose = () => { bcStop(); setScanOpen(false); };
   const addFood = () => {
     if (!selFood) return;
-    const s = parseFloat(serving) || 1,
-      nc = Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0));
+    const qty = parseFloat(serving) || (serveMode === "grams" ? 100 : 1);
+    const factor = mfFoodFactor(selFood, qty, serveMode);
+    const nc = Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0));
+    const lookup = selFood.source === "usda" || selFood.source === "openfoodfacts";
     setFoodLog(p => [...p, {
       id: Date.now(),
       date: viewDate,
       time: entryTime,
       name: selFood.name,
-      serving: s,
-      ...(selFood.unit ? { unit: selFood.unit, source: selFood.source } : {}),
-      protein: Math.round(selFood.protein * s * 10) / 10,
-      fat: Math.round(selFood.fat * s * 10) / 10,
-      carbs: Math.round((selFood.carbs || 0) * s * 10) / 10,
-      fiber: Math.round((selFood.fiber || 0) * s * 10) / 10,
-      netCarbs: Math.round(nc * s * 10) / 10,
-      calories: Math.round(selFood.cal * s)
+      serving: Math.round(factor * 1000) / 1000,
+      serveQty: qty,
+      serveMode,
+      ...(selFood.unit || lookup ? {
+        unit: serveMode === "grams" ? "g" : serveMode === "serving" ? selFood.servingText || (selFood.servingGrams ? `${selFood.servingGrams} g serving` : "serving") : selFood.unit,
+        source: selFood.source
+      } : {}),
+      protein: Math.round(selFood.protein * factor * 10) / 10,
+      fat: Math.round(selFood.fat * factor * 10) / 10,
+      carbs: Math.round((selFood.carbs || 0) * factor * 10) / 10,
+      fiber: Math.round((selFood.fiber || 0) * factor * 10) / 10,
+      netCarbs: Math.round(nc * factor * 10) / 10,
+      calories: Math.round(selFood.cal * factor)
     }]);
     setCustomFoods(prev => {
       const key = selFood.name.toLowerCase().trim();
@@ -25103,6 +26049,7 @@ function NutritionTab({
     });
     setSelFood(null);
     setServing("1");
+    setServeMode("unit");
     setFoodSearch("");
     setShowAdd(false);
   };
@@ -25583,7 +26530,12 @@ All values are per the serving size you specify. Be accurate — use standard nu
   }), React.createElement("button", {
     className: "btn btn-sm btn-secondary",
     onClick: () => setShowSettings(s => !s)
-  }, React.createElement(IconSettings, null), " ", showSettings ? "Hide" : "Settings"))), glp1 && React.createElement("div", {
+  }, React.createElement(IconSettings, null), " ", showSettings ? "Hide" : "Settings"))), React.createElement(MfMacroMeter, {
+    protein: totals.protein,
+    proteinTarget: t ? t.protein : 0,
+    netCarbs: totals.netCarbs,
+    carbCap: t ? t.netCarbs : 0
+  }), glp1 && React.createElement("div", {
     style: {
       background: "#1a0a0a",
       border: "1px solid #4a1a1a",
@@ -26289,7 +27241,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
     }
   }, "No match — try AI Lookup or Custom Entry.") : filtF.map((f, i) => React.createElement("div", {
     key: i,
-    onClick: () => setSelFood(f),
+    onClick: () => selectFood(f),
     style: {
       padding: "9px 14px",
       cursor: "pointer",
@@ -26351,7 +27303,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
     style: { padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }
   }, "No results.") : list.map((f, i) => React.createElement("div", {
     key: f.fdcId + "-" + i,
-    onClick: () => { setSelFood(f); setServing("1"); },
+    onClick: () => selectFood(f),
     style: { padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #1f2228", background: selFood?.fdcId === f.fdcId ? "#1e1018" : "transparent" }
   }, React.createElement("div", {
     style: { fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text)" }
@@ -26384,12 +27336,45 @@ All values are per the serving size you specify. Be accurate — use standard nu
     style: {
       color: "var(--text)"
     }
-  }, selFood.name), selFood.unit ? " — 1 serving = " + selFood.unit + " (enter 1.5 for 150 g)" : ""), React.createElement("div", {
+  }, selFood.name.replace(" (USDA, per 100 g)", "").replace(" (Open Food Facts, per 100 g)", "")), (selFood.source === "usda" || selFood.source === "openfoodfacts") && React.createElement("div", {
+    "data-testid": "serving-desc",
+    style: {
+      marginTop: 4,
+      color: "var(--text)"
+    }
+  }, selFood.servingText ? "Package serving: " + selFood.servingText : selFood.servingGrams ? "Package serving: " + selFood.servingGrams + " g" : "No package serving listed. Use grams."), (selFood.source === "usda" || selFood.source === "openfoodfacts") && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8
+    }
+  }, [["serving", "Servings", !(selFood.servingGrams > 0)], ["grams", "Grams", false]].map(([mode, label, off]) => React.createElement("button", {
+    key: mode,
+    type: "button",
+    "data-testid": "serve-" + mode,
+    disabled: off,
+    className: "btn btn-secondary",
+    style: {
+      minHeight: 48,
+      flex: 1,
+      justifyContent: "center",
+      opacity: off ? .4 : 1,
+      borderColor: serveMode === mode ? "var(--teal)" : "var(--border)",
+      color: serveMode === mode ? "var(--teal)" : "var(--label)"
+    },
+    onClick: () => {
+      if (off) return;
+      setServeMode(mode);
+      if (mode === "serving") setServing("1");
+      if (mode === "grams") setServing(String(selFood.servingGrams || 100));
+    }
+  }, label))), !(selFood.source === "usda" || selFood.source === "openfoodfacts") && selFood.unit ? " — 1 = " + selFood.unit : ""), React.createElement("div", {
     className: "form-row form-row-2"
-  }, React.createElement("div", null, React.createElement("label", null, "Servings"), React.createElement("input", {
+  }, React.createElement("div", null, React.createElement("label", null, serveMode === "grams" ? "Grams" : "Servings"), React.createElement("input", {
+    "data-testid": "serving-input",
     type: "number",
     min: "0.25",
-    step: "0.25",
+    step: serveMode === "grams" ? "1" : "0.25",
     value: serving,
     onChange: e => setServing(e.target.value)
   })), React.createElement("div", {
@@ -26413,7 +27398,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
       color: "var(--muted)",
       marginTop: 6
     }
-  }, "Preview (", serving, "×): P:", Math.round(selFood.protein * (parseFloat(serving) || 1) * 10) / 10, "g · F:", Math.round(selFood.fat * (parseFloat(serving) || 1) * 10) / 10, "g · NC:", Math.round(Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0)) * (parseFloat(serving) || 1) * 10) / 10, "g · ", Math.round(selFood.cal * (parseFloat(serving) || 1)), "kcal"))), addMode === "custom" && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Preview: P:", Math.round(selFood.protein * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · F:", Math.round(selFood.fat * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · NC:", Math.round(Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0)) * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · ", Math.round(selFood.cal * mfFoodFactor(selFood, serving, serveMode)), "kcal", serveMode === "grams" ? ` · ${serving || 0} g` : serveMode === "serving" ? ` · ${serving || 0} serving${Number(serving) === 1 ? "" : "s"}` : ` · ${serving || 0}×`))), addMode === "custom" && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "form-row form-row-2",
     style: {
       marginBottom: 10
@@ -26594,7 +27579,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
         justifyContent: "center"
       },
       onClick: copyYesterday
-    }, copyYestDone ? "✓ Yesterday copied!" : "📋 Copy Yesterday (" + yestCount + " items)");
+    }, copyYestDone ? "✓ Yesterday copied!" : "Copy all of yesterday (" + yestCount + ")");
   })(), savedMeals.length > 0 && React.createElement("button", {
     className: "btn btn-sm",
     style: {
@@ -26607,7 +27592,11 @@ All values are per the serving size you specify. Be accurate — use standard nu
       justifyContent: "center"
     },
     onClick: () => setShowSavedMeals(s => !s)
-  }, "🍽 Saved Meals (", savedMeals.length, ")")), todayE.length > 0 && React.createElement("div", {
+  }, "🍽 Saved Meals (", savedMeals.length, ")")), React.createElement(MealRepeat, {
+    foodLog: foodLog,
+    viewDate: viewDate,
+    onCopy: entries => setFoodLog(p => [...p, ...entries])
+  }), todayE.length > 0 && React.createElement("div", {
     style: {
       marginBottom: 6
     }
@@ -27424,7 +28413,17 @@ All values are per the serving size you specify. Be accurate — use standard nu
         style: {
           fontSize: 12
         }
-      }, e.name, e.serving && e.serving !== 1 && React.createElement("span", {
+      }, e.name, e.serveMode === "grams" ? React.createElement("span", {
+        style: {
+          color: "var(--muted)",
+          fontSize: 10
+        }
+      }, " ", e.serveQty, " g") : e.serveMode === "serving" ? React.createElement("span", {
+        style: {
+          color: "var(--muted)",
+          fontSize: 10
+        }
+      }, " ×", e.serveQty, e.unit ? " (" + e.unit + ")" : "") : e.serving && e.serving !== 1 && React.createElement("span", {
         style: {
           color: "var(--muted)",
           fontSize: 10
