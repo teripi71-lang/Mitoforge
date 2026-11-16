@@ -1888,6 +1888,9 @@ const styles = `
     .gym-num{font-size:18px;}
     .sets-table td input,.interval-table td input{min-height:48px;font-size:18px;}
   }
+
+  .mf-hr-card{margin-bottom:14px;}
+  .mf-hr-bpm{font-variant-numeric:tabular-nums;}
 `;
 
 
@@ -5465,6 +5468,15 @@ function mfMergeWatchLog(log, incoming) {
       changed = true;
       return;
     }
+    const win = mfEntryWindow(raw);
+    const hit = out.findIndex(e => e && e.date === raw.date && (e.type === "cardio" || e.type === "hiit") && mfWindowsOverlap(mfEntryWindow(e), win));
+    if (hit >= 0) {
+      const cur = out[hit];
+      const keep = mfEntryIsManual(cur) || cur.liveHr ? cur : raw;
+      out[hit] = mfFillFromOther(keep, keep === cur ? raw : cur);
+      changed = true;
+      return;
+    }
     out.push({
       ...raw,
       fromWatch: true,
@@ -5510,9 +5522,10 @@ function mfAbsorbWatchInbox(profileId) {
   const have = new Set((deduped.log || []).filter(e => e && e.watch && e.watch.labelId).map(e => e.watch.labelId));
   const missing = (acts.acts || []).filter(a => a && a.labelId && !a.dismissed && !have.has(a.labelId)).map(mfLogFromAct);
   const merged = mfMergeWatchLog(deduped.log, missing);
-  const changedLog = deduped.changed || merged.changed;
-  if (changedLog) saveLS(pk(profileId, "log"), merged.log);
-  return { changed: days.changed || acts.changed || changedLog, log: merged.log, daily: days.daily };
+  const collapsed = mfCollapseOverlappingCardio(merged.log);
+  const changedLog = deduped.changed || merged.changed || collapsed.changed;
+  if (changedLog) saveLS(pk(profileId, "log"), collapsed.log);
+  return { changed: days.changed || acts.changed || changedLog, log: collapsed.log, daily: days.daily };
 }
 function mfWatchUpdated(profileId) {
   const wd = profileId ? loadLS(WATCH_DAILY_KEY(profileId), {}) || {} : {};
@@ -10713,10 +10726,10 @@ function App() {
       ...x,
       id: t + 1 + i
     }));
-    setLog(prev => [{
+    setLog(prev => mfCollapseOverlappingCardio([{
       ...main,
       id: t
-    }, ...extra, ...prev]);
+    }, ...extra, ...prev]).log);
     showToast(extra.length ? `Session logged ✓ (+${extra.length} Zone 2 cardio)` : "Session logged ✓");
   };
   const deleteEntry = id => setLog(prev => prev.filter(e => e.id !== id));
@@ -12766,7 +12779,7 @@ function StrengthTab({
     const warmItems = hybMkItems(prep.warmup, prepFin),
       coolItems = hybMkItems(prep.cooldown, prepFin);
     const also = [...hybZ2Entries(prep.warmup, prepFin, date, "warm-up in a Strength session"), ...hybZ2Entries(prep.cooldown, prepFin, date, "cool-down in a Strength session")];
-    onLog({
+    onLog(mfApplyLiveHr({
       type: "strength",
       date,
       exercise: "Strength Circuit",
@@ -12790,7 +12803,7 @@ function StrengthTab({
       notes: sessionNotes,
       isZ2: false,
       sets: []
-    });
+    }));
     setCircuit([]);
     setSessionNotes("");
     setPrepFin({});
@@ -12800,7 +12813,9 @@ function StrengthTab({
   const totalSets = circuit.reduce((a, i) => a + i.sets.filter(s => s.weight && s.reps).length, 0);
   return React.createElement("div", null, React.createElement("div", {
     className: "section-head"
-  }, "Strength Session"), React.createElement(HybSectionCard, {
+  }, "Strength Session"), React.createElement(LiveHrCard, {
+    profile: profile
+  }), React.createElement(HybSectionCard, {
     title: "Warm-up",
     sub: "before your lifts",
     items: prep.warmup,
@@ -16935,7 +16950,7 @@ function CardioTab({
       return;
     }
     setError("");
-    onLog({
+    onLog(mfApplyLiveHr({
       type: "cardio",
       date,
       exercise: exer,
@@ -16958,7 +16973,7 @@ function CardioTab({
       yogaStyle: isYogaStyle ? yogaStyle : null,
       notes,
       sets: []
-    });
+    }));
     setDur("");
     setAvgHR("");
     setStartHR("");
@@ -16977,7 +16992,9 @@ function CardioTab({
   };
   return React.createElement("div", null, React.createElement("div", {
     className: "section-head"
-  }, "Cardio Session"), React.createElement(HRTargetsCard, {
+  }, "Cardio Session"), React.createElement(LiveHrCard, {
+    profile: profile
+  }), React.createElement(HRTargetsCard, {
     profile: profile,
     hrSet: crdHr,
     onSave: saveCrdHr
@@ -17843,6 +17860,429 @@ function mfHrLine(id) {
 function loadHRSet(id) {
   return id ? loadLS(HR_SET_KEY(id), {}) : {};
 }
+
+const MF_HR_DEVICE_KEY = "mitoforge_hr_device";
+const MF_HR_HELP = "Wear your Myzone strap (or turn on Heart Rate Broadcast on your watch) and tap Connect. If it doesn't appear, close the Myzone app or disconnect the strap from your watch, since some straps allow only one or two connections.";
+function mfParseHeartRate(value) {
+  if (!value) return null;
+  let view = value;
+  if (typeof DataView !== "undefined" && !(value instanceof DataView)) {
+    const buf = value.buffer || value;
+    view = new DataView(buf, value.byteOffset || 0, value.byteLength || buf.byteLength);
+  }
+  if (view.byteLength < 2) return null;
+  const flags = view.getUint8(0);
+  const bpm = flags & 0x01 ? view.byteLength >= 3 ? view.getUint16(1, true) : null : view.getUint8(1);
+  if (!(bpm >= 30 && bpm <= 240)) return null;
+  return bpm;
+}
+function mfHrZones(profile) {
+  const id = profile && profile.id;
+  const saved = id ? loadHRSet(id) : {};
+  const calc = calcHRTargets(profile && profile.age, saved.restHR);
+  const maxHR = Number(saved.maxHR) || calc.maxHR;
+  const z2Low = Number(saved.z2Low) || calc.z2Low;
+  const z2High = Number(saved.z2High) || calc.z2High;
+  const z3 = Math.round(maxHR * 0.8);
+  const z4 = Math.round(maxHR * 0.9);
+  return { maxHR, z2Low, z2High, z3: Math.max(z2High + 1, z3), z4: Math.max(z3 + 1, z4) };
+}
+function mfWhichZone(bpm, zones) {
+  const n = Number(bpm);
+  if (!(n > 0) || !zones) return 0;
+  if (n < zones.z2Low) return 1;
+  if (n <= zones.z2High) return 2;
+  if (n < zones.z3) return 3;
+  if (n < zones.z4) return 4;
+  return 5;
+}
+const MF_ZONE_COLOR = { 1: "var(--blue)", 2: "var(--green)", 3: "var(--teal)", 4: "var(--yellow)", 5: "var(--accent)" };
+const MF_ZONE_NAME = { 1: "Zone 1", 2: "Zone 2", 3: "Zone 3", 4: "Zone 4", 5: "Zone 5" };
+function mfEntryWindow(e) {
+  if (!e) return null;
+  if (e.liveHr && e.liveHr.startedAt && e.liveHr.endedAt) return [Number(e.liveHr.startedAt), Number(e.liveHr.endedAt)];
+  const w = e.watch || {};
+  if (w.startTs && w.endTs) return [Number(w.startTs), Number(w.endTs)];
+  if (!e.date) return null;
+  const base = new Date(e.date + "T00:00:00").getTime();
+  const mins = t => {
+    const m = String(t || "").match(/(\d{1,2}):(\d{2})/);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const a = mins(w.start);
+  if (a == null) return null;
+  let end = mins(w.end);
+  if (end == null && w.durSec) end = a + Math.round(Number(w.durSec) / 60);
+  if (end == null) return null;
+  if (end < a) end += 1440;
+  return [base + a * 60000, base + end * 60000];
+}
+function mfWindowsOverlap(a, b) {
+  return !!(a && b && a[0] < b[1] && b[0] < a[1]);
+}
+function mfFillFromOther(keep, other) {
+  const next = { ...keep };
+  if (other && other.watch) next.watch = { ...(keep.watch || {}), ...other.watch };
+  ["avgHR", "peakHR", "startHR", "endHR"].forEach(k => {
+    if ((next[k] === "" || next[k] == null) && other && other[k]) next[k] = other[k];
+  });
+  if (next.hrZones == null && other && other.hrZones) next.hrZones = other.hrZones;
+  if ((next.z2Min == null || next.z2Min === "") && other && other.z2Min != null) next.z2Min = other.z2Min;
+  if (!next.liveHr && other && other.liveHr) next.liveHr = other.liveHr;
+  if (other && other.verticalFt && !next.verticalFt) next.verticalFt = other.verticalFt;
+  if (other && other.distance && !next.distance) {
+    next.distance = other.distance;
+    next.distanceUnit = other.distanceUnit || next.distanceUnit;
+  }
+  return next;
+}
+function mfCollapseOverlappingCardio(log) {
+  const out = [];
+  let changed = false;
+  (log || []).forEach(e => {
+    if (!e || e.type !== "cardio" && e.type !== "hiit") {
+      out.push(e);
+      return;
+    }
+    const win = mfEntryWindow(e);
+    const idx = out.findIndex(x => x && x.date === e.date && (x.type === "cardio" || x.type === "hiit") && mfWindowsOverlap(mfEntryWindow(x), win));
+    if (idx < 0 || !win) {
+      out.push(e);
+      return;
+    }
+    changed = true;
+    const cur = out[idx];
+    const keep = mfEntryIsManual(cur) || cur.liveHr ? cur : e;
+    const other = keep === cur ? e : cur;
+    out[idx] = mfFillFromOther(keep, other);
+  });
+  return { log: out, changed };
+}
+function mfApplyLiveHr(entry) {
+  const s = window.mfHrTakeSummary && window.mfHrTakeSummary();
+  if (!entry || !s) return entry;
+  const next = { ...entry };
+  if (next.avgHR === "" || next.avgHR == null) next.avgHR = String(s.avg);
+  if (next.peakHR === "" || next.peakHR == null) next.peakHR = String(s.peak);
+  next.hrZones = s.zoneSec;
+  next.z2Min = s.z2Min;
+  next.liveHr = {
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    avg: s.avg,
+    peak: s.peak,
+    z2Min: s.z2Min,
+    zoneSec: s.zoneSec
+  };
+  if (next.type === "cardio") {
+    next.isZ2 = !!s.mostlyZ2;
+    if (!next.duration && s.minutes) next.duration = s.minutes;
+  }
+  return next;
+}
+const mfHr = {
+  supported: typeof navigator !== "undefined" && !!(navigator.bluetooth && navigator.bluetooth.requestDevice),
+  status: "off",
+  bpm: null,
+  name: "",
+  message: "",
+  attempts: 0,
+  zoneMs: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+  sumBpm: 0,
+  samples: 0,
+  peak: 0,
+  startedAt: 0,
+  recovery: null,
+  device: null,
+  stopping: false,
+  wakeHeld: false,
+  listeners: new Set(),
+  remembered: null,
+  tick: null,
+  retry: null,
+  zones: null
+};
+function mfHrEmit() {
+  const snap = mfHr.snapshot();
+  mfHr.listeners.forEach(fn => fn(snap));
+}
+mfHr.snapshot = function () {
+  return {
+    supported: this.supported,
+    status: this.status,
+    bpm: this.bpm,
+    name: this.name,
+    message: this.message,
+    attempts: this.attempts,
+    z2Ms: this.zoneMs[2],
+    recovery: this.recovery,
+    remembered: this.remembered
+  };
+};
+mfHr.subscribe = function (fn) {
+  this.listeners.add(fn);
+  return () => this.listeners.delete(fn);
+};
+function mfHrRemembered() {
+  try {
+    const raw = localStorage.getItem(MF_HR_DEVICE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function mfHrSaveDevice(device) {
+  const rec = { id: device && device.id, name: device && device.name || "" };
+  try { localStorage.setItem(MF_HR_DEVICE_KEY, JSON.stringify(rec)); } catch {}
+  mfHr.remembered = rec;
+  mfHr.name = rec.name || mfHr.name;
+}
+async function mfHrRefreshDevices() {
+  mfHr.remembered = mfHrRemembered();
+  if (!mfHr.supported || !navigator.bluetooth.getDevices) return;
+  try {
+    const list = await navigator.bluetooth.getDevices();
+    const saved = mfHr.remembered;
+    const found = saved && list.find(d => d.id === saved.id);
+    if (found) mfHr.device = found;
+  } catch {}
+  mfHrEmit();
+}
+function mfHrHoldWake() {
+  if (mfHr.wakeHeld) return;
+  if (typeof requestWakeLock === "function") {
+    requestWakeLock().then(ok => { mfHr.wakeHeld = !!ok; }).catch(() => {});
+  }
+}
+function mfHrReleaseWake() {
+  if (!mfHr.wakeHeld) return;
+  mfHr.wakeHeld = false;
+  if (typeof releaseWakeLock === "function") releaseWakeLock();
+}
+function mfHrApplySample(bpm, zones) {
+  const n = Number(bpm);
+  if (!(n >= 30 && n <= 240)) return;
+  const now = Date.now();
+  if (!mfHr.startedAt) mfHr.startedAt = now;
+  mfHr.bpm = n;
+  mfHr.peak = Math.max(mfHr.peak || 0, n);
+  mfHr.sumBpm += n;
+  mfHr.samples += 1;
+  mfHr.lastSample = Date.now();
+  mfHrEmit();
+}
+function mfHrStartTick() {
+  if (mfHr.tick) return;
+  mfHr.tick = setInterval(() => {
+    if (mfHr.status === "live" && mfHr.bpm && Date.now() - (mfHr.lastSample || 0) < 15000) {
+      const z = mfWhichZone(mfHr.bpm, mfHr.zones);
+      if (z) mfHr.zoneMs[z] += 1000;
+    }
+    if (mfHr.recovery && Date.now() - mfHr.recovery.t0 > 65000) mfHr.recovery = null;
+    mfHrEmit();
+  }, 1000);
+}
+async function mfHrAttach(device) {
+  mfHr.device = device;
+  mfHr.stopping = false;
+  mfHr.status = "connecting";
+  mfHr.message = "Connecting to " + (device.name || "heart rate monitor") + "…";
+  mfHrEmit();
+  if (!device.__mfHrHook) {
+    device.addEventListener("gattserverdisconnected", mfHrOnDisconnect);
+    device.__mfHrHook = true;
+  }
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService("heart_rate");
+  const char = await service.getCharacteristic("heart_rate_measurement");
+  mfHr.char = char;
+  if (mfHr.onValue) char.removeEventListener("characteristicvaluechanged", mfHr.onValue);
+  mfHr.onValue = ev => {
+    const bpm = mfParseHeartRate(ev.target.value);
+    mfHr.lastSample = Date.now();
+    if (bpm) mfHrApplySample(bpm, mfHr.zones);
+  };
+  char.addEventListener("characteristicvaluechanged", mfHr.onValue);
+  await char.startNotifications();
+  mfHrSaveDevice(device);
+  mfHr.status = "live";
+  mfHr.message = "";
+  mfHr.attempts = 0;
+  mfHr.name = device.name || (mfHr.remembered && mfHr.remembered.name) || "Heart rate monitor";
+  mfHrStartTick();
+  mfHrHoldWake();
+  mfHrEmit();
+  try {
+    const value = await char.readValue();
+    const bpm = mfParseHeartRate(value);
+    mfHr.lastSample = Date.now();
+    if (bpm) mfHrApplySample(bpm, mfHr.zones);
+  } catch {}
+}
+function mfHrOnDisconnect() {
+  if (mfHr.stopping) return;
+  mfHr.status = "reconnecting";
+  mfHr.attempts += 1;
+  mfHr.message = mfHr.attempts > 5 ? "Disconnected. Tap Connect to try again." : "Disconnected. Trying again… (" + mfHr.attempts + " of 5)";
+  mfHrEmit();
+  if (mfHr.attempts > 5 || !mfHr.device) {
+    mfHr.status = "off";
+    mfHrReleaseWake();
+    mfHrEmit();
+    return;
+  }
+  clearTimeout(mfHr.retry);
+  mfHr.retry = setTimeout(() => {
+    mfHrAttach(mfHr.device).catch(() => mfHrOnDisconnect());
+  }, Math.min(8000, 1000 * mfHr.attempts));
+}
+async function mfHrConnect(profile) {
+  if (!mfHr.supported) return;
+  mfHr.zones = mfHrZones(profile);
+  mfHr.stopping = false;
+  mfHr.attempts = 0;
+  try {
+    if (mfHr.device && mfHr.remembered && mfHr.device.id === mfHr.remembered.id) {
+      await mfHrAttach(mfHr.device);
+      return;
+    }
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ["heart_rate"] }]
+    });
+    await mfHrAttach(device);
+  } catch (err) {
+    if (err && err.name === "NotFoundError") {
+      mfHr.status = "off";
+      mfHr.message = "";
+    } else {
+      mfHr.status = "off";
+      mfHr.message = "Could not connect. " + MF_HR_HELP;
+    }
+    mfHrEmit();
+  }
+}
+function mfHrDisconnect() {
+  mfHr.stopping = true;
+  clearTimeout(mfHr.retry);
+  try { if (mfHr.device && mfHr.device.gatt.connected) mfHr.device.gatt.disconnect(); } catch {}
+  mfHr.status = "off";
+  mfHr.bpm = null;
+  mfHr.message = "";
+  mfHrReleaseWake();
+  mfHrEmit();
+}
+function mfHrMarkRecovery() {
+  if (!mfHr.bpm) return;
+  mfHr.recovery = { t0: Date.now(), bpm0: mfHr.bpm };
+  mfHrEmit();
+}
+function mfHrTakeSummary() {
+  const total = Object.keys(mfHr.zoneMs).reduce((a, k) => a + mfHr.zoneMs[k], 0);
+  if (mfHr.samples < 5 || total < 5000) return null;
+  const zoneSec = {};
+  Object.keys(mfHr.zoneMs).forEach(k => { zoneSec[k] = Math.round(mfHr.zoneMs[k] / 1000); });
+  const z2 = zoneSec[2] || 0;
+  const sec = Math.round(total / 1000);
+  const summary = {
+    count: mfHr.samples,
+    avg: Math.round(mfHr.sumBpm / mfHr.samples),
+    peak: mfHr.peak,
+    zoneSec,
+    z2Min: Math.round(z2 / 60),
+    mostlyZ2: z2 * 1000 >= total / 2,
+    minutes: Math.max(1, Math.round(sec / 60)),
+    startedAt: mfHr.startedAt,
+    endedAt: Date.now()
+  };
+  mfHr.zoneMs = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  mfHr.sumBpm = 0;
+  mfHr.samples = 0;
+  mfHr.peak = 0;
+  mfHr.startedAt = mfHr.status === "live" ? Date.now() : 0;
+  return summary;
+}
+function mfHrDebug(patch) {
+  Object.assign(mfHr, patch || {});
+  if (patch && patch.bpm) mfHrApplySample(patch.bpm, mfHr.zones || mfHrZones(null));
+  mfHrEmit();
+}
+window.mfParseHeartRate = mfParseHeartRate;
+window.mfHrConnect = mfHrConnect;
+window.mfHrDisconnect = mfHrDisconnect;
+window.mfHrTakeSummary = mfHrTakeSummary;
+window.mfHrMarkRecovery = mfHrMarkRecovery;
+window.mfHrDebug = mfHrDebug;
+window.mfApplyLiveHr = mfApplyLiveHr;
+window.mfCollapseOverlappingCardio = mfCollapseOverlappingCardio;
+window.mfWhichZone = mfWhichZone;
+function LiveHrCard({ profile }) {
+  const [s, setS] = useState(() => mfHr.snapshot());
+  const [, setNow] = useState(0);
+  useEffect(() => mfHr.subscribe(setS), []);
+  useEffect(() => { mfHr.zones = mfHrZones(profile); mfHrRefreshDevices(); }, [profile && profile.id]);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const zones = mfHrZones(profile);
+  const zone = s.bpm ? mfWhichZone(s.bpm, zones) : 0;
+  const color = MF_ZONE_COLOR[zone] || "var(--muted)";
+  const z2 = s.z2Ms || 0;
+  const z2Label = `${String(Math.floor(z2 / 60000)).padStart(2, "0")}:${String(Math.floor(z2 / 1000) % 60).padStart(2, "0")}`;
+  const rec = s.recovery;
+  const recAge = rec ? Math.min(60, Math.round((Date.now() - rec.t0) / 1000)) : 0;
+  const recShow = rec && Date.now() - rec.t0 < 65000 && s.bpm;
+  if (!s.supported) {
+    return React.createElement("div", {
+      className: "card mf-hr-card",
+      "data-testid": "hr-unsupported"
+    }, React.createElement("div", {
+      style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", lineHeight: 1.5 }
+    }, "Live heart rate needs Chrome on this phone."));
+  }
+  return React.createElement("div", {
+    className: "card mf-hr-card",
+    "data-testid": "hr-card",
+    style: { borderColor: s.status === "live" ? color : "var(--border)" }
+  }, React.createElement("div", {
+    style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }
+  }, s.status === "live" ? "Live heart rate" : "Heart rate"), s.status === "live" ? React.createElement("button", {
+    type: "button",
+    className: "btn btn-ghost",
+    style: { minHeight: 48 },
+    onClick: () => mfHrDisconnect()
+  }, "Disconnect") : React.createElement("button", {
+    type: "button",
+    className: "btn btn-teal",
+    "data-testid": "hr-connect",
+    style: { minHeight: 48 },
+    onClick: () => mfHrConnect(profile)
+  }, s.remembered && s.remembered.name ? "Connect " + s.remembered.name : "Connect heart rate")), s.status === "live" && React.createElement("div", {
+    "data-testid": "hr-bpm",
+    style: { fontFamily: "var(--font-head)", fontSize: 84, fontWeight: 900, lineHeight: 0.9, color, marginTop: 6 }
+  }, s.bpm || "—"), s.status === "live" && React.createElement("div", {
+    "data-testid": "hr-zone",
+    style: { fontFamily: "var(--font-head)", fontSize: 22, fontWeight: 700, color, letterSpacing: 1 }
+  }, MF_ZONE_NAME[zone] || "", s.name ? React.createElement("span", {
+    "data-testid": "hr-device",
+    style: { display: "block", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 400, color: "var(--muted)", letterSpacing: 0, marginTop: 4 }
+  }, s.name) : null), (s.status === "live" || z2 > 0) && React.createElement("div", {
+    "data-testid": "hr-z2",
+    style: { fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--label)", marginTop: 6 }
+  }, "Time in Zone 2  ", z2Label), recShow && React.createElement("div", {
+    "data-testid": "hr-recovery",
+    style: { fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--teal)", marginTop: 6 }
+  }, "Recovery: ", rec.bpm0, " → ", s.bpm, ", down ", Math.max(0, rec.bpm0 - s.bpm), " in ", recAge, "s"), s.message && React.createElement("div", {
+    "data-testid": "hr-status",
+    style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--yellow)", marginTop: 8, lineHeight: 1.45 }
+  }, s.message), s.status !== "live" && React.createElement("div", {
+    "data-testid": "hr-help",
+    style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", lineHeight: 1.5, marginTop: 8 }
+  }, MF_HR_HELP));
+}
+
 const NEW_STR_EX_V2 = ["Zercher Squat", "Zercher Split Squat", "Neutral-Grip DB Bench", "Straight-Arm Pulldown", "Rope Pushdown", "Step-Up (Slow Step-Down)"];
 function mfDraftDate(draft) {
   const t = todayStr();
@@ -18868,6 +19308,7 @@ function HIITTab({
       try {
         navigator.vibrate && navigator.vibrate([300, 120, 300]);
       } catch {}
+      if (window.mfHrMarkRecovery) window.mfHrMarkRecovery();
       setBt(x => x ? {
         ...x,
         beeped: true
@@ -18971,7 +19412,7 @@ function HIITTab({
     }
     setHiitHold("");
     setError("");
-    onLog({
+    onLog(mfApplyLiveHr({
       type: "hiit",
       date,
       exercise: machine,
@@ -18987,7 +19428,7 @@ function HIITTab({
       distUnit,
       isZ2: false,
       sets: []
-    });
+    }));
     setIntervals(blankIvs(defBoosts));
     setNotes("");
     setDistance("");
@@ -19039,7 +19480,9 @@ function HIITTab({
       color: "var(--yellow)",
       borderLeftColor: "var(--yellow)"
     }
-  }, "HIIT Session"), showDraftBanner && intervals.some(i => i.peakHR || i.recovHR) && React.createElement(DraftBanner, {
+  }, "HIIT Session"), React.createElement(LiveHrCard, {
+    profile: profile
+  }), showDraftBanner && intervals.some(i => i.peakHR || i.recovHR) && React.createElement(DraftBanner, {
     msg: `Draft restored — ${intervals.filter(i => i.peakHR || i.recovHR).length} interval${intervals.filter(i => i.peakHR || i.recovHR).length !== 1 ? "s" : ""} logged · saved ${draftAge}`,
     onRestore: () => setShowDraftBanner(false),
     onDiscard: () => {
@@ -23026,7 +23469,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 43 · Nov 16";
+const MF_BUILD_LABEL = "Build 44 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
