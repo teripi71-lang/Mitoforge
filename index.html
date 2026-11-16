@@ -12813,9 +12813,7 @@ function StrengthTab({
   const totalSets = circuit.reduce((a, i) => a + i.sets.filter(s => s.weight && s.reps).length, 0);
   return React.createElement("div", null, React.createElement("div", {
     className: "section-head"
-  }, "Strength Session"), React.createElement(LiveHrCard, {
-    profile: profile
-  }), React.createElement(HybSectionCard, {
+  }, "Strength Session"), React.createElement(HybSectionCard, {
     title: "Warm-up",
     sub: "before your lifts",
     items: prep.warmup,
@@ -17993,6 +17991,12 @@ const mfHr = {
   peak: 0,
   startedAt: 0,
   recovery: null,
+  trace: [],
+  spans: [],
+  boostRows: [],
+  openBoost: null,
+  resting: null,
+  recoverRule: { mode: "under", under: 130, drop: 20 },
   device: null,
   stopping: false,
   wakeHeld: false,
@@ -18015,8 +18019,15 @@ mfHr.snapshot = function () {
     message: this.message,
     attempts: this.attempts,
     z2Ms: this.zoneMs[2],
+    zoneMs: { ...this.zoneMs },
     recovery: this.recovery,
-    remembered: this.remembered
+    remembered: this.remembered,
+    trace: this.trace.slice(-240),
+    spans: this.spans.slice(-12),
+    boostRows: this.boostRows.slice(),
+    resting: this.resting,
+    openBoost: this.openBoost,
+    ready: mfHrIsReady()
   };
 };
 mfHr.subscribe = function (fn) {
@@ -18039,7 +18050,7 @@ function mfHrSaveDevice(device) {
 }
 async function mfHrRefreshDevices() {
   mfHr.remembered = mfHrRemembered();
-  if (!mfHr.supported || !navigator.bluetooth.getDevices) return;
+  if (!mfHr.supported || !navigator.bluetooth || !navigator.bluetooth.getDevices) return;
   try {
     const list = await navigator.bluetooth.getDevices();
     const saved = mfHr.remembered;
@@ -18068,8 +18079,91 @@ function mfHrApplySample(bpm, zones) {
   mfHr.peak = Math.max(mfHr.peak || 0, n);
   mfHr.sumBpm += n;
   mfHr.samples += 1;
-  mfHr.lastSample = Date.now();
+  mfHr.lastSample = now;
+  const last = mfHr.trace[mfHr.trace.length - 1];
+  if (!last || now - last.t >= 1000) mfHr.trace.push({ t: now, bpm: n });
+  else last.bpm = n;
+  if (mfHr.trace.length > 1200) mfHr.trace.splice(0, mfHr.trace.length - 1200);
+  if (mfHr.openBoost && n >= (mfHr.openBoost.peak || 0)) {
+    if (n > mfHr.openBoost.peak) mfHr.openBoost.peakAt = now;
+    mfHr.openBoost.peak = n;
+  }
+  if (mfHr.resting && mfHr.resting.drop60 == null && now - mfHr.resting.restT0 >= 60000) {
+    mfHr.resting.drop60 = Math.max(0, (mfHr.resting.peak || n) - n);
+  }
+  if (mfHr.resting && mfHrIsReady() && !mfHr.resting.beeped) {
+    mfHr.resting.beeped = true;
+    try { playBeep(880, 0.18, 0.45); } catch (e) {}
+    try { vibrateAlert([180, 80, 180]); } catch (e) {}
+  }
   mfHrEmit();
+}
+function mfHrIsReady() {
+  const r = mfHr.resting;
+  if (!r || !mfHr.bpm) return false;
+  const rule = mfHr.recoverRule || { mode: "under", under: 130, drop: 20 };
+  if (rule.mode === "drop") return (r.peak || mfHr.bpm) - mfHr.bpm >= (Number(rule.drop) || 20);
+  return mfHr.bpm <= (Number(rule.under) || 130);
+}
+function mfHrBeginBoost(idx) {
+  if (mfHr.resting) mfHrFinishRest();
+  const now = Date.now();
+  mfHr.openBoost = { idx, t0: now, peak: mfHr.bpm || 0, peakAt: now };
+  const span = { t0: now, t1: null };
+  mfHr.spans.push(span);
+  mfHr.openSpan = span;
+  mfHrEmit();
+}
+function mfHrEndBoost() {
+  if (!mfHr.openBoost) return;
+  const now = Date.now();
+  if (mfHr.openSpan) mfHr.openSpan.t1 = now;
+  mfHr.resting = {
+    idx: mfHr.openBoost.idx,
+    t0: mfHr.openBoost.t0,
+    peak: mfHr.openBoost.peak || mfHr.bpm || 0,
+    peakAt: mfHr.openBoost.peakAt || now,
+    restT0: now,
+    drop60: null,
+    beeped: false
+  };
+  mfHr.openBoost = null;
+  mfHr.openSpan = null;
+  if (mfHr.bpm) mfHr.recovery = { t0: now, bpm0: mfHr.bpm };
+  mfHrEmit();
+}
+function mfHrFinishRest() {
+  const r = mfHr.resting;
+  if (!r) return null;
+  const now = Date.now();
+  const restSec = Math.max(0, Math.round((now - r.restT0) / 1000));
+  const endHr = mfHr.bpm || 0;
+  const drop60 = r.drop60 != null ? r.drop60 : restSec >= 60 ? Math.max(0, (r.peak || endHr) - endHr) : null;
+  const row = {
+    n: r.idx + 1,
+    peak: r.peak || 0,
+    timeToPeak: Math.max(0, Math.round(((r.peakAt || r.t0) - r.t0) / 1000)),
+    restEndHr: endHr,
+    drop60,
+    restSec
+  };
+  mfHr.boostRows.push(row);
+  mfHr.resting = null;
+  mfHr.recovery = null;
+  mfHrEmit();
+  return row;
+}
+function mfHiitSummary(rows, zoneMs) {
+  const list = rows || [];
+  const peaks = list.map(r => Number(r.peak) || 0).filter(n => n > 0);
+  const drops = list.map(r => r.drop60).filter(n => n != null && n !== "" && !isNaN(Number(n))).map(Number);
+  const above = zoneMs ? Math.round(((zoneMs[4] || 0) + (zoneMs[5] || 0)) / 1000) : 0;
+  return {
+    boosts: list,
+    avgPeak: peaks.length ? Math.round(peaks.reduce((a, b) => a + b, 0) / peaks.length) : null,
+    bestDrop: drops.length ? Math.max(...drops) : null,
+    aboveSec: above
+  };
 }
 function mfHrStartTick() {
   if (mfHr.tick) return;
@@ -18211,11 +18305,47 @@ window.mfHrConnect = mfHrConnect;
 window.mfHrDisconnect = mfHrDisconnect;
 window.mfHrTakeSummary = mfHrTakeSummary;
 window.mfHrMarkRecovery = mfHrMarkRecovery;
+window.mfHrApplySample = mfHrApplySample;
+window.mfHrIsReady = mfHrIsReady;
+window.mfHrBeginBoost = mfHrBeginBoost;
+window.mfHrEndBoost = mfHrEndBoost;
+window.mfHrFinishRest = mfHrFinishRest;
+window.mfHiitSummary = mfHiitSummary;
 window.mfHrDebug = mfHrDebug;
+window.mfHr = mfHr;
 window.mfApplyLiveHr = mfApplyLiveHr;
 window.mfCollapseOverlappingCardio = mfCollapseOverlappingCardio;
 window.mfWhichZone = mfWhichZone;
-function LiveHrCard({ profile }) {
+function MfHrGraph({ trace, spans }) {
+  const now = Date.now();
+  const win = 4 * 60 * 1000;
+  const t0 = now - win;
+  const pts = (trace || []).filter(p => p.t >= t0);
+  if (pts.length < 2) return React.createElement("div", {
+    "data-testid": "hr-graph-empty",
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 8 }
+  }, "The line fills in as your heart rate comes in.");
+  const lo = Math.min(...pts.map(p => p.bpm)) - 4;
+  const hi = Math.max(...pts.map(p => p.bpm)) + 4;
+  const span = Math.max(8, hi - lo);
+  const W = 320, H = 96;
+  const x = t => Math.max(0, Math.min(W, (t - t0) / win * W));
+  const y = b => 8 + (1 - (b - lo) / span) * (H - 16);
+  const line = pts.map(p => x(p.t).toFixed(1) + "," + y(p.bpm).toFixed(1)).join(" ");
+  return React.createElement("svg", {
+    "data-testid": "hr-graph",
+    viewBox: `0 0 ${W} ${H}`,
+    width: "100%",
+    height: "96",
+    role: "img",
+    style: { marginTop: 8, background: "#12151b", borderRadius: 6 }
+  }, (spans || []).map((s, i) => {
+    const a = x(s.t0), b = x(s.t1 || now);
+    if (b < 0 || a > W) return null;
+    return React.createElement("rect", { key: i, x: Math.max(0, a), y: 0, width: Math.max(2, Math.min(W, b) - Math.max(0, a)), height: H, fill: "rgba(245,158,11,0.28)" });
+  }), React.createElement("polyline", { fill: "none", stroke: "var(--green)", strokeWidth: "2.5", points: line }));
+}
+function LiveHrCard({ profile, mode }) {
   const [s, setS] = useState(() => mfHr.snapshot());
   const [, setNow] = useState(0);
   useEffect(() => mfHr.subscribe(setS), []);
@@ -18271,7 +18401,10 @@ function LiveHrCard({ profile }) {
   }, s.name) : null), (s.status === "live" || z2 > 0) && React.createElement("div", {
     "data-testid": "hr-z2",
     style: { fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--label)", marginTop: 6 }
-  }, "Time in Zone 2  ", z2Label), recShow && React.createElement("div", {
+  }, "Time in Zone 2  ", z2Label), mode === "hiit" && React.createElement(MfHrGraph, {
+    trace: s.trace,
+    spans: s.spans
+  }), recShow && mode !== "hiit" && React.createElement("div", {
     "data-testid": "hr-recovery",
     style: { fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--teal)", marginTop: 6 }
   }, "Recovery: ", rec.bpm0, " → ", s.bpm, ", down ", Math.max(0, rec.bpm0 - s.bpm), " in ", recAge, "s"), s.message && React.createElement("div", {
@@ -19308,7 +19441,7 @@ function HIITTab({
       try {
         navigator.vibrate && navigator.vibrate([300, 120, 300]);
       } catch {}
-      if (window.mfHrMarkRecovery) window.mfHrMarkRecovery();
+      if (window.mfHrEndBoost) window.mfHrEndBoost();
       setBt(x => x ? {
         ...x,
         beeped: true
@@ -19390,14 +19523,28 @@ function HIITTab({
   };
   const [hiitHold, setHiitHold] = useState("");
   const handleSubmit = () => {
-    const valid = intervals.filter(i => i.peakHR || i.recovHR);
+    if (mfHr.resting) mfHrFinishRest();
+    const rows = mfHr.boostRows.slice();
+    const merged = intervals.map((iv, i) => {
+      const row = rows.find(r => r.n === i + 1);
+      if (!row) return iv;
+      return {
+        ...iv,
+        peakHR: row.peak ? String(Math.max(Number(iv.peakHR) || 0, row.peak)) : iv.peakHR,
+        recovHR: row.restEndHr ? String(row.restEndHr) : iv.recovHR,
+        recovSec: row.restSec != null ? row.restSec : iv.recovSec,
+        timeToPeak: row.timeToPeak,
+        drop60: row.drop60
+      };
+    });
+    const valid = merged.filter(i => i.peakHR || i.recovHR || i.recovSec);
     setBt(null);
     if (!valid.length) {
       setError("Log at least one interval with HR data.");
       return;
     }
     const msgs = [];
-    intervals.forEach((iv, idx) => {
+    merged.forEach((iv, idx) => {
       const peak = Number(iv.peakHR),
         rec = Number(iv.recovHR);
       if (rec && peak && rec > peak) msgs.push(`Boost ${idx + 1}: recovery heart rate is higher than the peak.`);
@@ -19412,6 +19559,19 @@ function HIITTab({
     }
     setHiitHold("");
     setError("");
+    const summaryRows = merged.map((iv, i) => {
+      const row = rows.find(r => r.n === i + 1);
+      if (row) return row;
+      if (!(iv.peakHR || iv.recovHR || iv.recovSec)) return null;
+      return {
+        n: i + 1,
+        peak: Number(iv.peakHR) || 0,
+        timeToPeak: iv.timeToPeak != null ? iv.timeToPeak : null,
+        restEndHr: Number(iv.recovHR) || 0,
+        drop60: iv.drop60 != null && iv.drop60 !== "" ? Number(iv.drop60) : null,
+        restSec: iv.recovSec != null && iv.recovSec !== "" ? Number(iv.recovSec) : null
+      };
+    }).filter(Boolean);
     onLog(mfApplyLiveHr({
       type: "hiit",
       date,
@@ -19422,6 +19582,7 @@ function HIITTab({
       totalMin: Number(totalMin),
       targetPeakHR: Number(targetPeak),
       targetRecovHR: Number(targetRecov),
+      hiitSummary: mfHiitSummary(summaryRows, mfHr.zoneMs),
       lactateMin: Number(lactateMin),
       notes,
       distance: distance || null,
@@ -19430,6 +19591,11 @@ function HIITTab({
       sets: []
     }));
     setIntervals(blankIvs(defBoosts));
+    mfHr.boostRows = [];
+    mfHr.spans = [];
+    mfHr.trace = [];
+    mfHr.openBoost = null;
+    mfHr.resting = null;
     setNotes("");
     setDistance("");
     clearDraft();
@@ -19446,31 +19612,61 @@ function HIITTab({
   const btHold = bt && btEl < bt.holdMs;
   const btRemain = bt ? Math.max(0, Math.ceil((bt.holdMs - btEl) / 1000)) : 0;
   const btRec = bt ? Math.max(0, Math.floor((btEl - bt.holdMs) / 1000)) : 0;
+  const recoverMode = hrSet.recoverMode === "drop" ? "drop" : "under";
+  const recoverUnder = Number(hrSet.recoverUnder) || Number(targetRecov) || Math.round((hrTargets.maxHR || 170) * 0.7);
+  const recoverDrop = Number(hrSet.recoverDrop) || 20;
+  mfHr.recoverRule = { mode: recoverMode, under: recoverUnder, drop: recoverDrop };
+  const applyBoostRow = (idx, row) => {
+    if (!row) return;
+    setIntervals(s => s.map((r, i) => i === idx ? {
+      ...r,
+      peakHR: row.peak ? String(Math.max(Number(r.peakHR) || 0, row.peak)) : r.peakHR,
+      recovHR: row.restEndHr ? String(row.restEndHr) : r.recovHR,
+      recovSec: row.restSec,
+      timeToPeak: row.timeToPeak,
+      drop60: row.drop60
+    } : r));
+  };
   const startBoost = () => {
-    if (nextIdx < 0) return;
+    let idx = nextIdx;
+    if (bt && !btHold) {
+      const row = mfHrFinishRest();
+      applyBoostRow(bt.idx, row);
+      idx = bt.idx + 1;
+    }
+    if (idx < 0 || idx >= intervals.length) {
+      setBt(null);
+      return;
+    }
     const hold = Number(workSec) || 40;
-    try {
-      playBeep(880, 0.15, 0.4);
-    } catch {}
-    updateInterval(nextIdx, "holdSec", hold);
-    setBt({
-      idx: nextIdx,
-      t0: Date.now(),
-      holdMs: hold * 1000,
-      beeped: false
-    });
+    try { playBeep(880, 0.15, 0.4); } catch {}
+    updateInterval(idx, "holdSec", hold);
+    mfHrBeginBoost(idx);
+    setBt({ idx, t0: Date.now(), holdMs: hold * 1000, beeped: false });
   };
   const recovered = () => {
     if (!bt) return;
-    const sec = Math.max(0, Math.round((Date.now() - bt.t0 - bt.holdMs) / 1000));
+    const row = mfHrFinishRest();
+    const sec = row ? row.restSec : Math.max(0, Math.round((Date.now() - bt.t0 - bt.holdMs) / 1000));
     setIntervals(s => s.map((r, i) => i === bt.idx ? {
       ...r,
       recovSec: sec,
-      recovHR: r.recovHR || String(targetRecov)
+      recovHR: row && row.restEndHr ? String(row.restEndHr) : r.recovHR || String(targetRecov),
+      peakHR: row && row.peak ? String(Math.max(Number(r.peakHR) || 0, row.peak)) : r.peakHR,
+      timeToPeak: row ? row.timeToPeak : r.timeToPeak,
+      drop60: row ? row.drop60 : r.drop60
     } : r));
     setBt(null);
   };
-  const cancelBoost = () => setBt(null);
+  const cancelBoost = () => {
+    if (mfHr.openSpan) mfHr.spans = mfHr.spans.filter(s => s !== mfHr.openSpan);
+    mfHr.openSpan = null;
+    mfHr.openBoost = null;
+    mfHr.resting = null;
+    mfHr.recovery = null;
+    setBt(null);
+    mfHrEmit();
+  };
   const recSecs = intervals.filter(i => i.recovSec !== undefined && i.recovSec !== "").map(i => Number(i.recovSec));
   const peakMet = peaks.length && peaks.every(p => p >= tp);
   const recovMet = recovs.length && recovs.every(r => r <= tr);
@@ -19481,7 +19677,8 @@ function HIITTab({
       borderLeftColor: "var(--yellow)"
     }
   }, "HIIT Session"), React.createElement(LiveHrCard, {
-    profile: profile
+    profile: profile,
+    mode: "hiit"
   }), showDraftBanner && intervals.some(i => i.peakHR || i.recovHR) && React.createElement(DraftBanner, {
     msg: `Draft restored — ${intervals.filter(i => i.peakHR || i.recovHR).length} interval${intervals.filter(i => i.peakHR || i.recovHR).length !== 1 ? "s" : ""} logged · saved ${draftAge}`,
     onRestore: () => setShowDraftBanner(false),
@@ -19702,13 +19899,29 @@ function HIITTab({
     value: lactateMin,
     onChange: e => setLactateMin(e.target.value)
   }))), React.createElement("div", {
+    className: "form-row form-row-3",
+    style: { marginTop: 8 }
+  }, React.createElement("div", null, React.createElement("label", null, "Next boost when"), React.createElement("select", {
+    "data-testid": "hiit-recover-mode",
+    value: recoverMode,
+    onChange: e => saveHr("recoverMode", e.target.value)
+  }, React.createElement("option", { value: "under" }, "Heart rate under a number"), React.createElement("option", { value: "drop" }, "A drop from the peak"))), React.createElement("div", null, React.createElement("label", null, recoverMode === "drop" ? "Drop (bpm)" : "Under (bpm)"), React.createElement("input", {
+    "data-testid": "hiit-recover-target",
+    type: "number",
+    min: "5",
+    max: "220",
+    value: recoverMode === "drop" ? recoverDrop : recoverUnder,
+    onChange: e => saveHr(recoverMode === "drop" ? "recoverDrop" : "recoverUnder", Number(e.target.value) || "")
+  })), React.createElement("div", null, React.createElement("label", null, "Fixed hold still runs"), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", paddingTop: 10 }
+  }, (Number(workSec) || 40) + "s, then rest until you are ready"))), React.createElement("div", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 10,
       color: "var(--muted)",
       marginTop: 4
     }
-  }, "These start from your saved targets, or your last session. Change any of them for today.")), React.createElement("div", {
+  }, "These start from your saved targets, or your last session. Ready for the next boost defaults to under about 70% of max heart rate, or a 20 bpm drop if you switch it.")), React.createElement("div", {
     className: "card"
   }, React.createElement("div", {
     className: "card-head"
@@ -19804,6 +20017,27 @@ function HIITTab({
       color: "var(--muted)"
     }
   }, "recovery time so far")), React.createElement("div", {
+    "data-testid": "hiit-ready",
+    style: {
+      margin: "10px 0",
+      padding: "14px 12px",
+      borderRadius: 8,
+      textAlign: "center",
+      background: mfHrIsReady() ? "rgba(34,197,94,0.2)" : "rgba(20,184,166,0.08)",
+      border: mfHrIsReady() ? "2px solid var(--green)" : "1px solid var(--border)",
+      color: mfHrIsReady() ? "var(--green)" : "var(--text)",
+      fontFamily: "var(--font-head)",
+      fontSize: 20,
+      fontWeight: 700
+    }
+  }, mfHrIsReady() ? "Ready for the next boost" : recoverMode === "drop" ? "Resting · drop " + recoverDrop + "+ bpm from the peak" : "Resting · get under " + recoverUnder + " bpm", React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 400, color: "var(--muted)", marginTop: 6 }
+  }, (() => {
+    const r = mfHr.resting;
+    if (!r) return "Elapsed rest is the clock above.";
+    const dropNow = mfHr.bpm ? Math.max(0, (r.peak || 0) - mfHr.bpm) : null;
+    return "Peak " + (r.peak || "—") + " bpm · reached in " + Math.max(0, Math.round(((r.peakAt || r.t0) - r.t0) / 1000)) + "s" + (dropNow != null ? " · down " + dropNow + " so far" : "") + (r.drop60 != null ? " · 60s drop " + r.drop60 : "");
+  })())), React.createElement("div", {
     className: "form-row",
     style: {
       alignItems: "end"
@@ -19824,8 +20058,8 @@ function HIITTab({
       fontSize: 18,
       marginTop: 10
     },
-    onClick: recovered
-  }, "Back at ", tr, " bpm"), React.createElement("div", {
+    onClick: bt.idx + 1 < intervals.length ? startBoost : recovered
+  }, bt.idx + 1 < intervals.length ? "Start next boost" : "Rest done · log this boost"), React.createElement("div", {
     style: {
       textAlign: "center",
       marginTop: 8
@@ -20027,6 +20261,24 @@ function HIITTab({
     className: "btn btn-ghost btn-sm",
     onClick: () => setShowSaveTpl(false)
   }, "✕")))), React.createElement("div", {
+    className: "card",
+    "data-testid": "hiit-summary"
+  }, React.createElement("div", {
+    className: "card-head"
+  }, "This session"), React.createElement("table", {
+    className: "interval-table"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "#"), React.createElement("th", null, "Peak"), React.createElement("th", null, "60s drop"), React.createElement("th", null, "Rest"))), React.createElement("tbody", null, intervals.map((iv, i) => React.createElement("tr", {
+    key: "sum-" + iv.id
+  }, React.createElement("td", null, i + 1), React.createElement("td", null, iv.peakHR || "—"), React.createElement("td", null, iv.drop60 != null ? iv.drop60 : "—"), React.createElement("td", null, iv.recovSec != null && iv.recovSec !== "" ? iv.recovSec + "s" : "—")))), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--label)", marginTop: 8, lineHeight: 1.5 }
+  }, "Average peak ", avgPeak || "—", " · best 60s drop ", (() => {
+    const drops = intervals.map(iv => iv.drop60).filter(n => n != null && n !== "" && !isNaN(Number(n))).map(Number);
+    return drops.length ? Math.max(...drops) + " bpm" : "—";
+  })(), " · time in zones 4–5 ", (() => {
+    const z = mfHr.zoneMs || {};
+    const sec = Math.round(((z[4] || 0) + (z[5] || 0)) / 1000);
+    return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  })())), React.createElement("div", {
     className: "submit-section",
     style: {
       borderColor: "var(--yellow)"
@@ -20064,7 +20316,7 @@ function HIITTab({
   }, React.createElement(IconSettings, null), " Manage"), React.createElement("button", {
     className: "btn btn-yellow",
     onClick: handleSubmit
-  }, React.createElement(IconCheck, null), " Log HIIT"))));
+  }, React.createElement(IconCheck, null), " Log HIIT")))));
 }
 function LogTab({
   log,
@@ -23469,7 +23721,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44 · Nov 16";
+const MF_BUILD_LABEL = "Build 44.1 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -24592,8 +24844,10 @@ function DashboardTab({
           fontSize: 10,
           border: `1px solid ${pk >= tp && rv <= tr ? "var(--green)" : "var(--border)"}`
         }
-      }, "#", j + 1, " ", pk ? "↑" + pk : "—", "/", rv ? "↓" + rv : "—");
-    })));
+      }, "#", j + 1, " ", pk ? "↑" + pk : "—", "/", rv ? "↓" + rv : "—", iv.drop60 != null && iv.drop60 !== "" ? " · −" + iv.drop60 : "");
+    })), s.hiitSummary && React.createElement("div", {
+      style: { marginTop: 6, color: "var(--muted)", fontSize: 11 }
+    }, "Saved summary · avg peak ", s.hiitSummary.avgPeak || "—", " · best 60s drop ", s.hiitSummary.bestDrop != null ? s.hiitSummary.bestDrop + " bpm" : "—", " · zones 4–5 ", Math.floor((s.hiitSummary.aboveSec || 0) / 60), ":", String((s.hiitSummary.aboveSec || 0) % 60).padStart(2, "0")));
   })), openCard === "func" && React.createElement("div", {
     className: "card",
     style: {

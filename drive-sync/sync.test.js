@@ -319,7 +319,7 @@ test("the page wires the real backup function and the service worker cache bumpe
   assert.match(index, /function mfBackupText\(\)\{var o=\{app:"MitoForge",schema:1,exportedAt:new Date\(\)\.toISOString\(\),keys:\{\}\}/);
   assert.match(index, /☁ Drive Sync/);
   assert.match(index, /function MfDriveSync/);
-  assert.match(sw, /mitoforge-shell-v5/);
+  assert.match(sw, /mitoforge-shell-v6/);
   assert.match(sw, /script\.google\.com/);
   assert.match(sw, /drive-sync\/sync-client\.js/);
   const script = fs.readFileSync(path.join(__dirname, "Code.gs"), "utf8");

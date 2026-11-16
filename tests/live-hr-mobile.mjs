@@ -1,6 +1,7 @@
 /**
- * Phone-sized check of the live heart-rate card.
+ * Phone-sized check of live heart rate.
  * No real strap and no personal data. Bluetooth is simulated in the page.
+ * Strength should not show a heart-rate control. Cardio and HIIT should.
  */
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
@@ -19,7 +20,7 @@ const seed = {
   mf_interface_mode: "advanced",
   mf_profiles: JSON.stringify([{ id, name: "Alex", age: 55, goal: "longevity", glp1: "no", avoid: "left arm: no curls" }]),
   mf_active_profile: JSON.stringify(id),
-  [`mf_${id}_hr_settings`]: JSON.stringify({ restHR: 60, z2Low: 115, z2High: 132 })
+  [`mf_${id}_hr_settings`]: JSON.stringify({ restHR: 60, z2Low: 115, z2High: 132, recoverMode: "under", recoverUnder: 130 })
 };
 
 const browser = await chromium.launch({ headless: true });
@@ -31,8 +32,17 @@ await page.addInitScript(data => {
 }, seed);
 await mkdir(OUT, { recursive: true });
 await page.goto(BASE, { waitUntil: "domcontentloaded" });
-await page.getByRole("button", { name: /Workout/i }).click();
-await page.getByRole("button", { name: /Training/i }).click();
+async function openWorkout(name) {
+  await page.locator(".nav-btn").filter({ hasText: /Workout|Training|Cardio|HIIT/ }).click();
+  await page.locator(".workout-sub-btn", { hasText: name }).click();
+}
+await openWorkout("Training");
+await page.getByText("Strength Session").waitFor({ timeout: 15000 });
+assert(await page.getByTestId("hr-card").count() === 0, "strength should not show the heart-rate card");
+assert(await page.getByTestId("hr-connect").count() === 0, "strength should not show Connect heart rate");
+assert(await page.getByTestId("hr-unsupported").count() === 0, "strength should not show the heart-rate note");
+
+await openWorkout("Cardio");
 await page.getByTestId("hr-unsupported").waitFor({ timeout: 15000 });
 const note = await page.getByTestId("hr-unsupported").innerText();
 assert(/Chrome/.test(note), note);
@@ -66,6 +76,22 @@ const parsed = await page.evaluate(() => {
     watch: { labelId: "abc", startTs: Date.parse("2026-11-16T14:05:00"), endTs: Date.parse("2026-11-16T14:32:00"), avgHR: 124, maxHR: 140 }
   };
   const merged = window.mfCollapseOverlappingCardio([live, watch]);
+  window.mfHr.boostRows = [];
+  window.mfHr.bpm = 168;
+  window.mfHr.recoverRule = { mode: "under", under: 130, drop: 20 };
+  window.mfHrBeginBoost(0);
+  window.mfHrApplySample(175);
+  window.mfHrApplySample(182);
+  window.mfHrEndBoost();
+  window.mfHr.resting.restT0 = Date.now() - 61000;
+  const before = window.mfHrIsReady();
+  window.mfHrApplySample(151);
+  const mid = window.mfHrIsReady();
+  const drop60 = window.mfHr.resting.drop60;
+  window.mfHrApplySample(128);
+  const ready = window.mfHrIsReady();
+  const row = window.mfHrFinishRest();
+  const summary = window.mfHiitSummary([row], { 4: 45000, 5: 15000 });
   return {
     bit8: u8([0x00, 128]),
     bit16: u8([0x01, 144, 0x00]),
@@ -76,7 +102,7 @@ const parsed = await page.evaluate(() => {
     label: merged.log[0].watch && merged.log[0].watch.labelId,
     avg: merged.log[0].avgHR,
     peak: merged.log[0].peakHR,
-    sets: merged.log[0].sets.length
+    before, mid, ready, drop60, row, summary
   };
 });
 assert(parsed.bit8 === 128, "8-bit parse " + parsed.bit8);
@@ -86,6 +112,10 @@ assert(parsed.high === null, "16-bit value over 240 should be ignored");
 assert(parsed.n === 1, "overlapping watch import should merge, got " + parsed.n);
 assert(parsed.notes === "easy spin", "manual notes lost");
 assert(parsed.label === "abc" && parsed.peak === "140" && parsed.avg === "122", JSON.stringify(parsed));
+assert(parsed.before === false && parsed.mid === false && parsed.ready === true, "ready cue " + JSON.stringify(parsed));
+assert(parsed.drop60 === 31, "60s drop " + parsed.drop60);
+assert(parsed.row.peak === 182 && parsed.row.restEndHr === 128 && parsed.row.restSec >= 60, JSON.stringify(parsed.row));
+assert(parsed.summary.avgPeak === 182 && parsed.summary.bestDrop === 31 && parsed.summary.aboveSec === 60, JSON.stringify(parsed.summary));
 
 await page.evaluate(() => {
   window.mfHrDebug({
@@ -105,12 +135,58 @@ const device = await page.getByTestId("hr-device").innerText();
 assert(bpm.trim() === "122", bpm);
 assert(/Zone 2/.test(zone), zone);
 assert(/Myzone MZ-3/.test(device), device);
+assert(await page.getByTestId("hr-z2").count() === 1, "cardio keeps the Zone 2 timer");
 await page.getByTestId("hr-card").screenshot({ path: path.join(OUT, "hr-01-live.png") });
-await page.screenshot({ path: path.join(OUT, "hr-02-strength.png"), fullPage: false });
+await page.screenshot({ path: path.join(OUT, "hr-02-cardio.png"), fullPage: false });
 await page.evaluate(() => window.mfHrDebug({ status: "off", bpm: null, message: "", name: "" }));
 await page.getByTestId("hr-help").waitFor();
 await page.getByTestId("hr-connect").waitFor();
+const help = await page.getByTestId("hr-help").innerText();
+assert(/Myzone/.test(help), help);
 await page.getByTestId("hr-card").screenshot({ path: path.join(OUT, "hr-03-connect.png") });
+
+await openWorkout("Training");
+await page.getByText("Strength Session").waitFor();
+assert(await page.getByTestId("hr-card").count() === 0, "a connected strap still stays off the lifting screen");
+
+await openWorkout("HIIT");
+await page.getByTestId("hr-card").waitFor();
+await page.evaluate(() => {
+  const now = Date.now();
+  const trace = [];
+  for (let i = 0; i < 48; i++) {
+    const climb = i > 18 && i < 32 ? 50 : 0;
+    trace.push({ t: now - (48 - i) * 1000, bpm: 118 + climb + Math.round(6 * Math.sin(i / 3)) });
+  }
+  window.mfHr.trace = trace;
+  window.mfHr.spans = [{ t0: now - 30000, t1: now - 16000 }];
+  window.mfHr.status = "live";
+  window.mfHr.supported = true;
+  window.mfHr.bpm = 124;
+  window.mfHr.name = "Myzone MZ-3";
+  window.mfHr.resting = { idx: 0, t0: now - 20000, peak: 168, peakAt: now - 18000, restT0: now - 16000, drop60: null, beeped: true };
+  window.mfHr.recoverRule = { mode: "under", under: 130, drop: 20 };
+  window.mfHrEmit();
+});
+await page.getByTestId("hr-graph").waitFor();
+const boost = page.getByRole("button", { name: /Boost 1 of/ });
+await boost.scrollIntoViewIfNeeded();
+await page.locator("label", { hasText: "Boost Hold (sec)" }).locator("xpath=following-sibling::input").fill("1");
+await page.evaluate(() => window.mfHrDebug({ supported: true, status: "live", name: "Myzone MZ-3", bpm: 160, message: "" }));
+await boost.click();
+await page.getByTestId("hiit-ready").waitFor({ timeout: 8000 });
+await page.evaluate(() => window.mfHrDebug({ bpm: 122 }));
+await page.getByTestId("hiit-ready").getByText("Ready for the next boost").waitFor({ timeout: 4000 });
+const ready = await page.getByTestId("hiit-ready").innerText();
+assert(/Ready for the next boost/.test(ready), ready);
+assert(/Peak/.test(ready), ready);
+await page.getByTestId("hr-graph").screenshot({ path: path.join(OUT, "hr-04-hiit-graph.png") });
+await page.getByTestId("hiit-ready").screenshot({ path: path.join(OUT, "hr-05-hiit-ready.png") });
+await page.getByRole("button", { name: "Start next boost" }).click();
+await page.getByTestId("hiit-summary").getByRole("cell", { name: "160" }).waitFor({ timeout: 4000 });
+const summaryText = await page.getByTestId("hiit-summary").innerText();
+assert(/168|160|182/.test(summaryText), summaryText);
+await page.getByTestId("hiit-summary").screenshot({ path: path.join(OUT, "hr-06-hiit-summary.png") });
 
 if (errors.length) throw new Error(errors.join("\n"));
 await browser.close();
