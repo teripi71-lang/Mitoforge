@@ -211,3 +211,36 @@ test("inbox + deletion sync together: an inbox entry arrives, then deleting it o
   await sync.syncNow();
   assert.deepEqual(JSON.parse(data[P + "log"]).map(function (e) { return e.id; }), [1], "stays deleted");
 });
+
+test("watch file name is the dated drop, and the same id updates instead of duplicating", function () {
+  const r = loadRules();
+  assert.equal(r.syncIsWatchFile("MitoForge watch 2026-11-15.json"), true);
+  assert.equal(r.syncIsWatchFile("MitoForge inbox.json"), false);
+  assert.equal(r.syncIsWatchFile("MitoForge watch done 2026-11-15.json"), false);
+  const day = { id: "2026-11-15", date: "2026-11-15", sleepMin: 400, restHR: 54 };
+  const backup = { app: "MitoForge", schema: 1, exportedAt: "x", keys: {} };
+  const once = r.syncApplyInboxList(backup, [{ [P + "watch_days"]: [day] }]);
+  const twice = r.syncApplyInboxList(once.backup, [{ [P + "watch_days"]: [day] }]);
+  assert.equal(twice.added, 0);
+  assert.equal(twice.updated, 0);
+  const edited = r.syncApplyInboxList(twice.backup, [{ [P + "watch_days"]: [{ id: "2026-11-15", date: "2026-11-15", sleepMin: 430, restHR: 54, hrv: 46 }] }]);
+  assert.equal(edited.updated, 1);
+  assert.equal(JSON.parse(edited.backup.keys[P + "watch_days"]).length, 1);
+  assert.equal(JSON.parse(edited.backup.keys[P + "watch_days"])[0].hrv, 46);
+});
+
+test("doGet merges a dated watch file and a later upload consumes it", function () {
+  const day = { id: "2026-11-15", date: "2026-11-15", sleepMin: 430, restHR: 52 };
+  const s = loadScript([
+    ["MitoForge sync (latest).json", latestText({ [P + "log"]: JSON.stringify(phoneLog) })],
+    ["MitoForge watch 2026-11-15.json", inboxText({ [P + "watch_days"]: [day] })]
+  ]);
+  const out = JSON.parse(s.ctx.doGet({ parameter: { token: "tok", download: "latest" } }).text);
+  assert.equal(out.ok, true);
+  assert.equal(out.inboxAdded, 1);
+  assert.equal(JSON.parse(out.backup.keys[P + "watch_days"])[0].sleepMin, 430);
+  const uploaded = { keys: { [P + "log"]: JSON.stringify(phoneLog), [P + "watch_days"]: JSON.stringify([day]) } };
+  s.ctx.doPost({ postData: { contents: JSON.stringify({ app: "MitoForge", schema: 1, token: "tok", keys: uploaded.keys }) } });
+  assert.equal(s.files.some(function (f) { return f.name === "MitoForge watch 2026-11-15.json"; }), false);
+  assert.equal(s.files.some(function (f) { return /^MitoForge watch done 2026-11-15 /.test(f.name); }), true);
+});

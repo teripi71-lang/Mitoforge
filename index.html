@@ -5338,6 +5338,477 @@ function mfManualLine(e) {
   if (m.distance) p.push(`${m.distance} ${m.distanceUnit || "mi"}`);
   return p.length ? `You entered: ${p.join(", ")}` : "";
 }
+const WATCH_DAYS_KEY = id => `mf_${id}_watch_days`;
+const WATCH_UPDATED_KEY = id => `mf_${id}_watch_updated`;
+const TRIPS_KEY = id => `mf_${id}_trips`;
+function mfNumOrNull(v) {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function mfWatchDayRecord(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const date = String(raw.date || raw.id || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const day = { date };
+  ["sleepMin", "deepMin", "lightMin", "remMin", "awakeMin", "restHR", "hrv", "hrvLow", "hrvHigh", "sleepScore", "deepPct", "remPct", "trainingLoad", "vo2max"].forEach(k => {
+    const n = mfNumOrNull(raw[k]);
+    if (n != null) day[k] = n;
+  });
+  ["bed", "wake"].forEach(k => {
+    if (raw[k]) day[k] = String(raw[k]);
+  });
+  const stages = (day.deepMin || 0) + (day.lightMin || 0) + (day.remMin || 0);
+  if (day.sleepMin == null && stages > 0) day.sleepMin = stages + (day.awakeMin || 0);
+  if (day.deepPct == null && day.deepMin > 0 && day.sleepMin > 0) day.deepPct = Math.round(day.deepMin / day.sleepMin * 100);
+  if (day.remPct == null && day.remMin > 0 && day.sleepMin > 0) day.remPct = Math.round(day.remMin / day.sleepMin * 100);
+  return day;
+}
+function mfEntryIsManual(e) {
+  if (!e || e.fromWatch) return false;
+  return true;
+}
+function mfLogFromAct(a) {
+  const entry = mfEntryFromWatch(a);
+  entry.fromWatch = true;
+  entry.id = a.id && String(a.id).indexOf("watch:") === 0 ? a.id : "watch:" + a.labelId;
+  if (a.verticalFt) entry.verticalFt = Number(a.verticalFt);
+  if (a.notes) entry.notes = a.notes;
+  return entry;
+}
+function mfMergeWatchDays(daily, rows) {
+  const out = { ...(daily && typeof daily === "object" && !Array.isArray(daily) ? daily : {}) };
+  let changed = false;
+  (Array.isArray(rows) ? rows : []).forEach(raw => {
+    const day = mfWatchDayRecord(raw);
+    if (!day) return;
+    const prev = out[day.date] && typeof out[day.date] === "object" ? out[day.date] : {};
+    const next = { ...prev };
+    Object.keys(day).forEach(k => {
+      if (day[k] != null && day[k] !== "") next[k] = day[k];
+    });
+    if (JSON.stringify(prev) !== JSON.stringify(next)) {
+      out[day.date] = next;
+      changed = true;
+    }
+  });
+  return { daily: out, changed };
+}
+function mfMergeWatchActs(acts, rows) {
+  const out = Array.isArray(acts) ? acts.map(a => ({ ...a })) : [];
+  const at = {};
+  out.forEach((a, i) => {
+    if (a && a.labelId && at[a.labelId] == null) at[a.labelId] = i;
+  });
+  let changed = false;
+  (Array.isArray(rows) ? rows : []).forEach(raw => {
+    if (!raw || !raw.labelId) return;
+    const i = at[raw.labelId];
+    if (i == null) {
+      at[raw.labelId] = out.length;
+      out.push({ ...raw });
+      changed = true;
+      return;
+    }
+    const prev = out[i];
+    const next = { ...prev, ...raw, dismissed: prev.dismissed || raw.dismissed || false };
+    if (JSON.stringify(prev) !== JSON.stringify(next)) {
+      out[i] = next;
+      changed = true;
+    }
+  });
+  return { acts: out, changed };
+}
+function mfMergeWatchLog(log, incoming) {
+  let out = [...(log || [])];
+  let changed = false;
+  const apply = raw => {
+    if (!raw || !raw.watch || !raw.watch.labelId) return;
+    const label = raw.watch.labelId;
+    let idx = out.findIndex(e => e && e.watch && e.watch.labelId === label);
+    if (idx < 0 && raw.id != null) idx = out.findIndex(e => e && String(e.id) === String(raw.id));
+    if (idx >= 0) {
+      const cur = out[idx];
+      if (mfEntryIsManual(cur)) {
+        const next = { ...cur, watch: { ...(cur.watch || {}), ...raw.watch, labelId: label } };
+        if (JSON.stringify(next.watch) !== JSON.stringify(cur.watch)) {
+          out[idx] = next;
+          changed = true;
+        }
+      } else {
+        const keepNotes = cur.notes && raw.notes && cur.notes !== raw.notes && !/Added from your watch/i.test(cur.notes);
+        const next = {
+          ...raw,
+          id: cur.id,
+          fromWatch: true,
+          notes: keepNotes ? cur.notes : raw.notes || cur.notes || "",
+          watch: { ...(cur.watch || {}), ...raw.watch, labelId: label }
+        };
+        if (JSON.stringify(next) !== JSON.stringify(cur)) {
+          out[idx] = next;
+          changed = true;
+        }
+      }
+      return;
+    }
+    const act = {
+      ...raw.watch,
+      labelId: label,
+      date: raw.date,
+      kind: raw.type === "strength" || raw.type === "kb" ? "strength" : "cardio",
+      sportName: raw.exercise || raw.watch.sportName,
+      durSec: raw.watch.durSec || (Number(raw.duration) > 0 ? Number(raw.duration) * 60 : 0)
+    };
+    const attached = mfWatchAttach(out, [act]);
+    if (attached.changed) {
+      out = attached.log;
+      changed = true;
+      return;
+    }
+    out.push({
+      ...raw,
+      fromWatch: true,
+      id: raw.id || "watch:" + label
+    });
+    changed = true;
+  };
+  (incoming || []).forEach(apply);
+  const seen = new Set();
+  const deduped = [];
+  out.forEach(e => {
+    const label = e && e.watch && e.watch.labelId;
+    if (!label) {
+      deduped.push(e);
+      return;
+    }
+    if (seen.has(label)) {
+      changed = true;
+      const prev = deduped.findIndex(x => x.watch && x.watch.labelId === label);
+      if (prev >= 0 && mfEntryIsManual(e) && !mfEntryIsManual(deduped[prev])) deduped[prev] = e;
+      return;
+    }
+    seen.add(label);
+    deduped.push(e);
+  });
+  return { log: deduped, changed };
+}
+function mfDedupeActs(acts) {
+  const list = Array.isArray(acts) ? acts : [];
+  const r = mfMergeWatchActs([], list);
+  return { acts: r.acts, changed: JSON.stringify(r.acts) !== JSON.stringify(list) };
+}
+function mfAbsorbWatchInbox(profileId) {
+  if (!profileId) return { changed: false, log: [] };
+  const days = mfMergeWatchDays(loadLS(WATCH_DAILY_KEY(profileId), {}), loadLS(WATCH_DAYS_KEY(profileId), []));
+  if (days.changed) saveLS(WATCH_DAILY_KEY(profileId), days.daily);
+  const dates = Object.keys(days.daily || {}).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (dates.length) saveLS(WATCH_UPDATED_KEY(profileId), dates[dates.length - 1]);
+  const acts = mfDedupeActs(loadLS(WATCH_ACTS_KEY(profileId), []));
+  if (acts.changed) saveLS(WATCH_ACTS_KEY(profileId), acts.acts);
+  const current = loadLS(pk(profileId, "log"), []) || [];
+  const deduped = mfMergeWatchLog(current, []);
+  const have = new Set((deduped.log || []).filter(e => e && e.watch && e.watch.labelId).map(e => e.watch.labelId));
+  const missing = (acts.acts || []).filter(a => a && a.labelId && !a.dismissed && !have.has(a.labelId)).map(mfLogFromAct);
+  const merged = mfMergeWatchLog(deduped.log, missing);
+  const changedLog = deduped.changed || merged.changed;
+  if (changedLog) saveLS(pk(profileId, "log"), merged.log);
+  return { changed: days.changed || acts.changed || changedLog, log: merged.log, daily: days.daily };
+}
+function mfWatchUpdated(profileId) {
+  const wd = profileId ? loadLS(WATCH_DAILY_KEY(profileId), {}) || {} : {};
+  const days = Object.keys(wd).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (!days.length) return null;
+  const last = days[days.length - 1];
+  const age = Math.round((new Date(todayStr() + "T12:00:00") - new Date(last + "T12:00:00")) / 86400000);
+  return { last, age };
+}
+function mfSpark(values, marks, color, w, h) {
+  const nums = (values || []).map(Number);
+  if (nums.filter(n => !isNaN(n)).length < 2) return null;
+  w = w || 320;
+  h = h || 72;
+  const min = Math.min(...nums), max = Math.max(...nums), span = max - min || 1;
+  const pts = nums.map((v, i) => {
+    const x = 6 + i / (nums.length - 1) * (w - 12);
+    const y = h - 10 - (v - min) / span * (h - 20);
+    return [x, y];
+  });
+  return React.createElement("svg", {
+    className: "mf-spark",
+    viewBox: `0 0 ${w} ${h}`,
+    role: "img",
+    width: "100%",
+    height: h
+  }, React.createElement("polyline", {
+    fill: "none",
+    stroke: color || "var(--teal)",
+    strokeWidth: "2.5",
+    strokeLinejoin: "round",
+    strokeLinecap: "round",
+    points: pts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ")
+  }), pts.map((p, i) => marks && marks[i] ? React.createElement("circle", {
+    key: i,
+    cx: p[0],
+    cy: p[1],
+    r: "4",
+    fill: "var(--yellow)"
+  }) : null));
+}
+function mfSessionE1rm(sets) {
+  const b = mfBestSet(sets);
+  return b.bestE || 0;
+}
+function mfLiftSeries(log, name, id) {
+  const ss = [...mfLiftSessions(log, name, id, 24)].reverse();
+  let best = 0;
+  return ss.map(s => {
+    const e = mfSessionE1rm(s.sets);
+    const pr = e > best + 0.05;
+    if (e > best) best = e;
+    return { date: s.date, e1: e, pr };
+  }).filter(p => p.e1 > 0);
+}
+function mfWeekZ2(log, weekStart) {
+  const end = mfDayShift(weekStart, 6);
+  return (log || []).filter(e => e && e.date >= weekStart && e.date <= end && e.isZ2).reduce((a, e) => a + (Number(e.duration) || 0), 0);
+}
+function mfWeekHiit(log, weekStart) {
+  const end = mfDayShift(weekStart, 6);
+  return (log || []).filter(e => e && e.type === "hiit" && e.date >= weekStart && e.date <= end).length;
+}
+function mfAvg(nums) {
+  const v = nums.filter(n => n > 0);
+  if (!v.length) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
+function mfLongevitySnapshot(log, profileId) {
+  const today = todayStr();
+  const recentStart = mfDayShift(today, -28), priorStart = mfDayShift(today, -56);
+  const names = ["Zercher Squat", "Barbell RDL", "Split Squat", "Neutral-Grip DB Bench", "Neutral-Grip Pulldown", "Step-Up (Slow Step-Down)"];
+  const dirs = names.map(name => {
+    const s = mfLiftSeries(log, name, profileId).filter(p => p.date >= priorStart);
+    if (s.length < 2) return null;
+    const a = s[s.length - 1].e1, b = s[0].e1;
+    if (!(a > 0 && b > 0)) return null;
+    return a > b * 1.02 ? "up" : a < b * 0.98 ? "down" : "steady";
+  }).filter(Boolean);
+  const up = dirs.filter(d => d === "up").length, down = dirs.filter(d => d === "down").length;
+  const strength = !dirs.length ? "Not enough lift history this month to call a strength trend." : up > down ? "Strength is trending up on the lifts with enough history." : down > up ? "Strength is a bit lighter than the month before." : "Strength is about steady compared with the month before.";
+  const wd = loadLS(WATCH_DAILY_KEY(profileId), {}) || {};
+  const vo2 = Object.keys(wd).sort().map(d => Number(wd[d] && wd[d].vo2max)).filter(n => n > 0);
+  const cardio = vo2.length ? `Latest watch VO2max estimate is ${vo2[vo2.length - 1]}.` : `Zone 2 over the last 4 weeks is ${ (log || []).filter(e => e && e.isZ2 && e.date >= recentStart).reduce((a, e) => a + (Number(e.duration) || 0), 0) } minutes.`;
+  const weights = mfWeights(profileId).filter(w => w.date >= priorStart);
+  const body = weights.length >= 2 ? `Weight went from ${weights[0].w} lb to ${weights[weights.length - 1].w} lb.` : "Not enough weigh-ins this month to talk about the scale.";
+  const waist = loadLS(pk(profileId, "body_entries"), []).filter(e => e && e.waist && e.date >= priorStart);
+  const waistLine = waist.length >= 2 ? ` Waist went from ${waist[0].waist} to ${waist[waist.length - 1].waist}.` : "";
+  return { strength, cardio, body: body + waistLine };
+}
+function mfTripReadiness(trip, log, profileId) {
+  const today = todayStr();
+  const daysOut = Math.round((new Date(trip.date + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000);
+  const recent = (log || []).filter(e => e && e.type === "cardio" && e.date <= today && e.date >= mfDayShift(today, -21) && /pack|incline|tread|hike|walk/i.test(`${e.exercise || ""} ${e.notes || ""}`));
+  const longest = recent.reduce((m, e) => Math.max(m, Number(e.duration) || 0), 0);
+  const bestVert = recent.reduce((m, e) => Math.max(m, Number(e.verticalFt) || 0), 0);
+  const wantMin = Math.round((Number(trip.miles) || 0) * 20);
+  const wantVert = Number(trip.elevFt) || 0;
+  let score = 45;
+  const bits = [];
+  if (!recent.length) {
+    score -= 12;
+    bits.push("No pack walk or incline walk in the last 3 weeks.");
+  } else {
+    bits.push(`Longest recent walk is ${longest} min${wantMin ? `. A ${trip.miles} mile day is roughly ${wantMin} minutes of walking` : ""}.`);
+    if (wantMin) score += Math.round(Math.min(1, longest / wantMin) * 18) - 6;
+    if (wantVert) {
+      bits.push(bestVert ? `Most climbing lately is ${bestVert.toLocaleString()} ft. The trip day is about ${Number(wantVert).toLocaleString()} ft.` : "No climbing logged on those walks.");
+      if (bestVert >= wantVert * 0.75) score += 12;
+      else if (bestVert > 0) score += 4;
+    }
+  }
+  const legs = ["Zercher Squat", "Barbell RDL", "Split Squat", "Step-Up (Slow Step-Down)", "Step-Up (Light)"].map(name => {
+    const s = mfLiftSeries(log, name, profileId);
+    if (s.length < 2) return null;
+    const a = s[s.length - 1].e1, b = s[0].e1;
+    return { name, dir: a > b * 1.02 ? "up" : a < b * 0.98 ? "down" : "steady" };
+  }).filter(Boolean);
+  if (!legs.length) bits.push("Not enough recent leg lifts to see a trend yet.");
+  else {
+    const up = legs.filter(t => t.dir === "up").length, down = legs.filter(t => t.dir === "down").length;
+    if (up && !down) score += 10;
+    if (down && !up) score -= 6;
+    bits.push(`Legs look ${up && !down ? "a little stronger" : down && !up ? "a little lighter" : "about steady"} on ${legs.map(t => t.name.replace(" (Slow Step-Down)", "").replace(" (Light)", "")).slice(0, 3).join(", ")}.`);
+  }
+  const z2 = (log || []).filter(e => e && e.isZ2 && e.date >= mfDayShift(today, -6) && e.date <= today).reduce((a, e) => a + (Number(e.duration) || 0), 0);
+  bits.push(`Zone 2 over the last 7 days is ${z2} min. The week's aim is about 210.`);
+  if (z2 >= 180) score += 8;
+  else if (z2 < 80) score -= 6;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const weeks = Math.max(0, Math.round(daysOut / 7));
+  const plan = [];
+  if (daysOut < 0) plan.push("That date has passed.");
+  else if (daysOut <= 7) plan.push("Last week: keep the walks a little easier and a little shorter. Same pack, or lighter. Add time or add 5 lb, not both.");
+  else plan.push(`About ${weeks} week${weeks === 1 ? "" : "s"} out. Every 1–2 weeks, add 5 lb to the pack or add 15 minutes. Not both in the same step. Ease off the last week.`);
+  return { score, bits, plan, daysOut, longest, bestVert, z2 };
+}
+function WatchFreshness({ profileId }) {
+  const info = mfWatchUpdated(profileId);
+  if (!info) return null;
+  const stale = info.age > 2;
+  return React.createElement("div", { "data-testid": "watch-fresh" }, React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--teal)", margin: "0 0 8px" }
+  }, "Watch data: updated ", fmtDate(info.last)), stale && React.createElement("div", {
+    className: "card",
+    "data-testid": "watch-stale",
+    style: { borderColor: "var(--yellow)", marginBottom: 12 }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-body)", fontSize: 15, lineHeight: 1.5, color: "var(--label)" }
+  }, "Watch data is from ", fmtDate(info.last), ", more than two days ago. Today's readiness is using the last night the watch sent.")));
+}
+function WeighPrompt({ profileId }) {
+  const [rev, setRev] = useState(0);
+  const [val, setVal] = useState("");
+  const [hide, setHide] = useState(() => {
+    const o = profileId ? loadLS(`mf_${profileId}_weigh_nudge`, null) : null;
+    return !!(o && o.date === todayStr());
+  });
+  const last = mfWeights(profileId).slice(-1)[0];
+  const age = last ? Math.round((new Date(todayStr() + "T12:00:00") - new Date(last.date + "T12:00:00")) / 86400000) : 99;
+  if (hide || age < 7) return null;
+  void rev;
+  return React.createElement("div", {
+    className: "card",
+    "data-testid": "weigh-prompt",
+    style: { borderColor: "var(--teal)", marginBottom: 12 }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 700, marginBottom: 4 }
+  }, "Weekly weigh-in"), React.createElement("div", {
+    style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", marginBottom: 8 }
+  }, last ? `Last weigh-in was ${last.w} lb on ${fmtDate(last.date)}.` : "No weigh-in saved yet."), React.createElement("div", {
+    style: { display: "flex", gap: 8 }
+  }, React.createElement("input", {
+    "data-testid": "weigh-input",
+    type: "number",
+    inputMode: "decimal",
+    placeholder: "lb",
+    value: val,
+    onChange: e => setVal(e.target.value),
+    style: { maxWidth: 120, minHeight: 48 }
+  }), React.createElement("button", {
+    className: "btn btn-teal",
+    style: { minHeight: 48 },
+    onClick: () => {
+      const n = Number(val);
+      if (!(n > 0)) return;
+      mfSaveBodyFromCheckin(profileId, { date: todayStr(), weight: String(n) });
+      setVal("");
+      setRev(x => x + 1);
+    }
+  }, "Save"), React.createElement("button", {
+    className: "btn btn-ghost",
+    style: { minHeight: 48 },
+    onClick: () => {
+      if (profileId) saveLS(`mf_${profileId}_weigh_nudge`, { date: todayStr() });
+      setHide(true);
+    }
+  }, "Not today")));
+}
+function TripBoard({ profileId, log }) {
+  const [trips, setTrips] = useState(() => loadLS(TRIPS_KEY(profileId), []) || []);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", date: "", packLb: "", miles: "", elevFt: "", maxAltFt: "" });
+  const save = next => {
+    setTrips(next);
+    saveLS(TRIPS_KEY(profileId), next);
+  };
+  const add = () => {
+    if (!form.name.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(form.date)) return;
+    save([{ id: Date.now(), ...form, name: form.name.trim() }, ...trips]);
+    setForm({ name: "", date: "", packLb: "", miles: "", elevFt: "", maxAltFt: "" });
+    setOpen(false);
+  };
+  const upcoming = [...trips].filter(t => t && t.date).sort((a, b) => a.date < b.date ? -1 : 1);
+  const field = (k, label, testid) => React.createElement("div", null, React.createElement("label", null, label), React.createElement("input", {
+    "data-testid": testid,
+    value: form[k],
+    type: k === "date" ? "date" : k === "name" ? "text" : "number",
+    onChange: e => setForm(s => ({ ...s, [k]: e.target.value })),
+    style: { minHeight: 48 }
+  }));
+  return React.createElement("div", { "data-testid": "trip-board", className: "card", style: { marginBottom: 12 } }, React.createElement("div", {
+    style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }
+  }, React.createElement("div", { style: { fontFamily: "var(--font-head)", fontSize: 18, fontWeight: 700 } }, "Backpacking"), React.createElement("button", {
+    className: "btn btn-teal",
+    "data-testid": "trip-add",
+    style: { minHeight: 48 },
+    onClick: () => setOpen(v => !v)
+  }, open ? "Close" : "Add a trip")), open && React.createElement("div", { style: { marginTop: 10 } }, React.createElement("div", { className: "form-row form-row-2" }, field("name", "Trip name", "trip-name"), field("date", "Date", "trip-date")), React.createElement("div", { className: "form-row form-row-2" }, field("packLb", "Pack (lb)", "trip-pack"), field("miles", "Miles / day", "trip-miles")), React.createElement("div", { className: "form-row form-row-2" }, field("elevFt", "Climb / day (ft)", "trip-elev"), field("maxAltFt", "Max altitude (ft)", "trip-alt")), React.createElement("button", {
+    className: "btn btn-teal",
+    "data-testid": "trip-save",
+    style: { minHeight: 48, width: "100%", justifyContent: "center" },
+    onClick: add
+  }, "Save trip")), upcoming.map(t => {
+    const r = mfTripReadiness(t, log, profileId);
+    return React.createElement("div", { key: t.id, "data-testid": "trip-card", style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" } }, React.createElement("div", {
+      style: { display: "flex", justifyContent: "space-between", gap: 8 }
+    }, React.createElement("div", null, React.createElement("div", { style: { fontWeight: 700 } }, t.name), React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" } }, fmtDate(t.date), t.packLb ? ` · ${t.packLb} lb pack` : "", t.miles ? ` · ${t.miles} mi/day` : "", t.elevFt ? ` · ${Number(t.elevFt).toLocaleString()} ft` : "", t.maxAltFt ? ` · up to ${Number(t.maxAltFt).toLocaleString()} ft` : "")), React.createElement("div", {
+      "data-testid": "trip-score",
+      style: { fontFamily: "var(--font-head)", fontSize: 28, fontWeight: 900, color: "var(--teal)" }
+    }, r.score)), React.createElement("div", { style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", lineHeight: 1.5, marginTop: 6 } }, r.bits.map((b, i) => React.createElement("div", { key: i }, b)), r.plan.map((b, i) => React.createElement("div", { key: "p" + i, style: { marginTop: 4 } }, b))), React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      style: { marginTop: 6 },
+      onClick: () => save(trips.filter(x => x.id !== t.id))
+    }, "Remove"));
+  }));
+}
+function ProgressOverview({ log, profile, profileId }) {
+  const week = mfWeekOf(todayStr());
+  const z2 = mfWeekZ2(log, week);
+  const hiit = mfWeekHiit(log, week);
+  const z2Goal = mfZ2Goal();
+  const names = [...new Set((log || []).flatMap(e => (e && e.circuitItems || []).map(i => i.exercise)).filter(Boolean))];
+  const prefer = ["Zercher Squat", "Barbell RDL", "Split Squat", "Neutral-Grip DB Bench", "Neutral-Grip Pulldown", "Step-Up (Slow Step-Down)", "Step-Up (Light)"];
+  const lifts = prefer.filter(n => names.includes(n)).concat(names.filter(n => !prefer.includes(n))).slice(0, 6);
+  const glp1 = profile?.glp1 === "yes" || profile?.glp1 === "maintaining";
+  const nutri = profileId ? loadLS(pk(profileId, "nutri_settings"), {}) : {};
+  const targets = nutri.goalWeight ? calcTargets(parseFloat(nutri.goalWeight), nutri.proteinMultiplier || 0.9, nutri.goalMode || "recomp", glp1, nutri) : null;
+  const food = profileId ? loadLS(pk(profileId, "nutri_log"), []) : [];
+  const end = mfDayShift(week, 6);
+  const days = {};
+  food.filter(e => e && e.date >= week && e.date <= end).forEach(e => {
+    days[e.date] = days[e.date] || { protein: 0, netCarbs: 0 };
+    days[e.date].protein += Number(e.protein) || 0;
+    days[e.date].netCarbs += Number(e.netCarbs) || 0;
+  });
+  const dayRows = Object.values(days);
+  const proteinAvg = mfAvg(dayRows.map(d => d.protein));
+  const carbAvg = dayRows.length ? Math.round(dayRows.reduce((a, d) => a + d.netCarbs, 0) / dayRows.length) : null;
+  const weights = mfWeights(profileId);
+  const waist = (profileId ? loadLS(pk(profileId, "body_entries"), []) : []).filter(e => e && e.waist && e.date).sort((a, b) => a.date < b.date ? -1 : 1);
+  const wd = profileId ? loadLS(WATCH_DAILY_KEY(profileId), {}) || {} : {};
+  const wDays = Object.keys(wd).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().slice(-14);
+  const snap = mfLongevitySnapshot(log, profileId);
+  const bar = (label, value, max, note, testid) => React.createElement("div", { style: { marginBottom: 10 }, "data-testid": testid }, React.createElement("div", {
+    className: "mf-meter-top"
+  }, React.createElement("span", null, label), React.createElement("span", null, note)), React.createElement("div", { className: "mf-bar" }, React.createElement("div", {
+    style: { width: `${Math.min(100, Math.round(value / (max || 1) * 100))}%`, background: "var(--teal)" }
+  })));
+  return React.createElement("div", { "data-testid": "progress-overview" }, React.createElement("div", { className: "section-head" }, "Overview"), React.createElement("div", {
+    className: "card",
+    "data-testid": "longevity-snapshot"
+  }, React.createElement("div", { className: "card-head" }, "This month"), React.createElement("div", {
+    style: { fontFamily: "var(--font-body)", fontSize: 15, lineHeight: 1.55, color: "var(--label)" }
+  }, React.createElement("div", null, snap.strength), React.createElement("div", { style: { marginTop: 6 } }, snap.cardio), React.createElement("div", { style: { marginTop: 6 } }, snap.body))), React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-head" }, "This week"), bar("Zone 2", z2, z2Goal, `${z2} / ${z2Goal} min`, "z2-week"), bar("HIIT", hiit, 1, `${hiit} session${hiit === 1 ? "" : "s"}`, "hiit-week"), targets && proteinAvg != null && bar("Protein", proteinAvg, targets.protein, `avg ${proteinAvg} g · target ${targets.protein} g`, "protein-week"), targets && carbAvg != null && bar("Net carbs", carbAvg, targets.netCarbs, `avg ${carbAvg} g · cap ${targets.netCarbs} g`, "carb-week")), React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-head" }, "Strength"), lifts.length ? lifts.map(name => {
+    const series = mfLiftSeries(log, name, profileId);
+    if (series.length < 1) return null;
+    return React.createElement("div", { key: name, style: { marginBottom: 12 } }, React.createElement("div", {
+      style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--font-mono)", fontSize: 12 }
+    }, React.createElement("span", null, name), React.createElement("span", null, series[series.length - 1].e1, " est. 1RM")), mfSpark(series.map(p => p.e1), series.map(p => p.pr), "var(--accent2)"));
+  }) : React.createElement("div", { style: { color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 12 } }, "Log a couple of sessions and the lines show up here.")), React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-head" }, "Body"), weights.length >= 2 ? React.createElement(React.Fragment, null, React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 4 } }, "Weight ", weights[weights.length - 1].w, " lb", nutri.goalWeight ? ` · goal ${nutri.goalWeight} lb` : ""), mfSpark(weights.slice(-16).map(w => w.w), null, "var(--blue)")) : React.createElement("div", { style: { color: "var(--muted)", fontSize: 13 } }, "Two weigh-ins start the weight line."), waist.length >= 2 && React.createElement(React.Fragment, null, React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, margin: "8px 0 4px" } }, "Waist ", waist[waist.length - 1].waist), mfSpark(waist.slice(-16).map(w => Number(w.waist)), null, "var(--purple)"))), React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-head" }, "Sleep and HRV"), wDays.length >= 2 ? React.createElement(React.Fragment, null, React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12 } }, "Sleep hours"), mfSpark(wDays.map(d => (Number(wd[d].sleepMin) || 0) / 60), null, "var(--teal)"), React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, marginTop: 8 } }, "HRV"), mfSpark(wDays.map(d => Number(wd[d].hrv) || 0), null, "var(--yellow)")) : React.createElement("div", { style: { color: "var(--muted)", fontSize: 13 } }, "Watch nights show up here after a couple of mornings.")), React.createElement(TripBoard, { profileId, log }));
+}
+window.mfAbsorbWatchInbox = mfAbsorbWatchInbox;
+window.mfTripReadiness = mfTripReadiness;
+window.mfMergeWatchLog = mfMergeWatchLog;
+
 function WatchPending({
   profileId,
   log,
@@ -8885,7 +9356,14 @@ function TodayScreen({
         });
         setNudgeOff(true);
       }
-    }, "Got it")), S.session, React.createElement(MfPlanCard, {
+    }, "Got it")), React.createElement(WatchFreshness, {
+      profileId: profileId
+    }), React.createElement(WeighPrompt, {
+      profileId: profileId
+    }), React.createElement(TripBoard, {
+      profileId: profileId,
+      log: log
+    }), S.session, React.createElement(MfPlanCard, {
       session: todaySession
     }));
     S.stats = React.createElement(React.Fragment, null, React.createElement("div", {
@@ -10177,7 +10655,8 @@ function App() {
   const [manageOpen, setManageOpen] = useState(false);
   useEffect(() => {
     if (!activeProfileId) return;
-    setLog(loadLS(pk(activeProfileId, "log"), []));
+    const absorbed = mfAbsorbWatchInbox(activeProfileId);
+    setLog(absorbed.log && absorbed.log.length ? absorbed.log : loadLS(pk(activeProfileId, "log"), []));
     setStrEx(loadLS(pk(activeProfileId, "str"), DEFAULT_STR_EX));
     setKbEx(loadLS(pk(activeProfileId, "kb"), DEFAULT_KB_EX));
     setSessionOn(false);
@@ -10500,7 +10979,7 @@ function App() {
     return null;
   }
   const WORKOUT_TABS = [["strength", "Training", React.createElement(IconDumbbell, null), ""], ["cardio", "Cardio", React.createElement(IconCardio, null), ""], ["hiit", "HIIT", React.createElement(IconHIIT, null), "hiit"]];
-  const INSIGHTS_TABS = [["dashboard", "Dashboard", React.createElement(IconDash, null), ""], ["log", "Log", React.createElement(IconLog, null), ""], ["why", "Why It Works", React.createElement(IconWhy, null), "why"], ["body", "Body & Progress", null, ""]];
+  const INSIGHTS_TABS = [["overview", "Overview", React.createElement(IconDash, null), ""], ["dashboard", "Dashboard", React.createElement(IconDash, null), ""], ["log", "Log", React.createElement(IconLog, null), ""], ["why", "Why It Works", React.createElement(IconWhy, null), "why"], ["body", "Body & Progress", null, ""]];
   const isWorkoutTab = WORKOUT_TABS.some(([key]) => key === tab);
   const isInsightsTab = INSIGHTS_TABS.some(([key]) => key === tab) || showBodyComp;
   const workoutLabel = WORKOUT_TABS.find(([key]) => key === tab)?.[1] || "Workout";
@@ -10907,6 +11386,13 @@ function App() {
       setShowBodyComp(false);
     }
   }, React.createElement(IconDash, null), "Progress"), React.createElement("button", {
+    className: `workout-sub-btn${tab === "overview" ? " active" : ""}`,
+    onClick: () => {
+      setTab("overview");
+      setShowInsightsMenu(false);
+      setShowBodyComp(false);
+    }
+  }, "Overview"), React.createElement("button", {
     className: `workout-sub-btn${tab === "why" && !showBodyComp ? " why-active" : ""}`,
     onClick: () => {
       setTab("why");
@@ -10977,6 +11463,14 @@ function App() {
   }, icon, label))), showInsightsMenu && React.createElement("div", {
     className: "workout-submenu"
   }, React.createElement("button", {
+    className: `workout-sub-btn${tab === "overview" ? " active" : ""}`,
+    "data-testid": "nav-overview",
+    onClick: () => {
+      setTab("overview");
+      setShowInsightsMenu(false);
+      setShowBodyComp(false);
+    }
+  }, "Overview"), React.createElement("button", {
     className: `workout-sub-btn${tab === "dashboard" && !showBodyComp ? " active" : ""}`,
     onClick: () => {
       setTab("dashboard");
@@ -11245,6 +11739,12 @@ function App() {
     onEdit: editEntry,
     profileId: activeProfileId,
     onAddEntry: addEntry
+  })), tab === "overview" && React.createElement(MfGuard, {
+    name: "Overview"
+  }, React.createElement(ProgressOverview, {
+    log: log,
+    profile: activeProfile,
+    profileId: activeProfileId
   })), tab === "dashboard" && React.createElement(MfGuard, {
     name: "Dashboard"
   }, React.createElement(DashboardTab, {
@@ -22526,7 +23026,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 42 · Nov 16";
+const MF_BUILD_LABEL = "Build 43 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
