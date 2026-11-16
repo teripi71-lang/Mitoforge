@@ -7288,7 +7288,8 @@ function TodayScreen({
   profile,
   profileId,
   log,
-  onNavigate
+  onNavigate,
+  onAskDelete
 }) {
   const [coachInsight, setCoachInsight] = useState(null);
   const [insightLoading, setInsightLoading] = useState(false);
@@ -9261,7 +9262,16 @@ function TodayScreen({
       }
     }, todayLogged.type === "cardio" ? React.createElement(React.Fragment, null, mfCardioSummary(todayLogged).map((l, i) => React.createElement("div", {
       key: i
-    }, l))) : todayLogged.type === "hiit" ? `${todayLogged.intervals?.length || 0} intervals logged` : todayLogged.type === "strength" ? `${todayLogged.circuitItems?.length || 0} exercises logged` : todayLogged.type === "kb" ? `${todayLogged.circuitItems?.length || 0} exercises logged` : "Session logged"), !sessionDone && todaySession.tab && React.createElement("button", {
+    }, l))) : todayLogged.type === "hiit" ? `${todayLogged.intervals?.length || 0} intervals logged` : todayLogged.type === "strength" ? `${todayLogged.circuitItems?.length || 0} exercises logged` : todayLogged.type === "kb" ? `${todayLogged.circuitItems?.length || 0} exercises logged` : "Session logged"), sessionDone && todayLogged && onAskDelete && React.createElement("button", {
+      type: "button",
+      className: "btn btn-ghost",
+      "data-testid": "today-delete",
+      style: { marginTop: 10, minHeight: 48 },
+      onClick: e => {
+        e.stopPropagation();
+        onAskDelete(todayLogged);
+      }
+    }, "Delete this workout"), !sessionDone && todaySession.tab && React.createElement("button", {
       className: "today-cta",
       onClick: e => {
         e.stopPropagation();
@@ -10563,11 +10573,97 @@ function BackupPanel({
     }
   }));
 }
+function mfWorkoutDeleteLabel(entry) {
+  const name = entry && (entry.exercise || entry.machine) || "Workout";
+  let date = "—";
+  if (entry && entry.date) {
+    const d = new Date(entry.date + "T12:00:00");
+    const opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    date = d.toLocaleDateString("en-US", opts);
+  }
+  const mins = Number(entry && (entry.duration || entry.totalMin)) || 0;
+  const parts = [name, date];
+  if (mins > 0) parts.push(mins + " min");
+  return parts.join(" · ");
+}
+function mfRemoveOneLogEntry(log, entry) {
+  if (!Array.isArray(log) || !entry) return null;
+  let index = log.indexOf(entry);
+  if (index < 0 && entry.id != null && entry.id !== "") index = log.findIndex(e => e && e.id === entry.id);
+  if (index < 0) return null;
+  const next = log.slice();
+  const removed = next.splice(index, 1)[0];
+  return { index, removed, next };
+}
+function MfDeleteConfirm({ label, onCancel, onConfirm }) {
+  return React.createElement("div", {
+    "data-testid": "delete-confirm",
+    role: "dialog",
+    "aria-modal": "true",
+    style: {
+      position: "fixed",
+      inset: 0,
+      zIndex: 1000,
+      background: "rgba(0,0,0,.72)",
+      display: "flex",
+      alignItems: "flex-end",
+      justifyContent: "center",
+      padding: 16
+    },
+    onClick: onCancel
+  }, React.createElement("div", {
+    style: {
+      width: "100%",
+      maxWidth: 420,
+      background: "var(--card)",
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      padding: 16
+    },
+    onClick: e => e.stopPropagation()
+  }, React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-head)",
+      fontSize: 22,
+      fontWeight: 800,
+      marginBottom: 8
+    }
+  }, "Delete this workout?"), React.createElement("div", {
+    "data-testid": "delete-confirm-label",
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 15,
+      color: "var(--text)",
+      marginBottom: 16,
+      lineHeight: 1.45
+    }
+  }, label), React.createElement("div", {
+    style: { display: "flex", gap: 10 }
+  }, React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    "data-testid": "delete-cancel",
+    style: { flex: 1, minHeight: 48 },
+    onClick: onCancel
+  }, "Cancel"), React.createElement("button", {
+    type: "button",
+    className: "btn",
+    "data-testid": "delete-confirm-yes",
+    style: { flex: 1, minHeight: 48, background: "var(--accent)", color: "#fff", border: "none" },
+    onClick: onConfirm
+  }, "Delete"))));
+}
+window.mfWorkoutDeleteLabel = mfWorkoutDeleteLabel;
+window.mfRemoveOneLogEntry = mfRemoveOneLogEntry;
 function App() {
   const [profiles, setProfiles] = useState(() => loadLS("mf_profiles", []));
   const [activeProfileId, setActiveProfileId] = useState(() => loadLS("mf_active_profile", null));
   const [tab, setTab] = useState("today");
   const [toast, setToast] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const undoRef = useRef(null);
+  const toastTimer = useRef(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
   const [creatingProfile, setCreatingProfile] = useState(false);
@@ -10657,6 +10753,8 @@ function App() {
   }, [activeProfileId]);
   const activeProfile = profiles.find(p => p.id === activeProfileId) || null;
   const [log, setLog] = useState(() => loadLS(activeProfileId ? pk(activeProfileId, "log") : [], []));
+  const logRef = useRef(log);
+  logRef.current = log;
   const [strEx, setStrEx] = useState(() => loadLS(activeProfileId ? pk(activeProfileId, "str") : "_", DEFAULT_STR_EX));
   const [kbEx, setKbEx] = useState(() => loadLS(activeProfileId ? pk(activeProfileId, "kb") : "_", DEFAULT_KB_EX));
   const [crdEx, setCrdEx] = useState(() => {
@@ -10712,9 +10810,16 @@ function App() {
     }))]);
     saveLS(fk, true);
   }, [activeProfileId]);
-  const showToast = msg => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2800);
+  const showToast = (msg, ms) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    undoRef.current = null;
+    const text = typeof msg === "string" ? msg : msg && msg.text;
+    const undo = !!(msg && typeof msg === "object" && msg.undo);
+    setToast(text ? { text, undo } : null);
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+      undoRef.current = null;
+    }, ms || 2800);
   };
   const addEntry = entry => {
     const {
@@ -10732,7 +10837,26 @@ function App() {
     }, ...extra, ...prev]).log);
     showToast(extra.length ? `Session logged ✓ (+${extra.length} Zone 2 cardio)` : "Session logged ✓");
   };
-  const deleteEntry = id => setLog(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = entry => {
+    const hit = mfRemoveOneLogEntry(logRef.current, entry);
+    if (!hit) return;
+    setLog(hit.next);
+    showToast({ text: "Workout deleted", undo: true }, 8000);
+    undoRef.current = { entry: hit.removed, index: hit.index };
+  };
+  const undoDelete = () => {
+    const saved = undoRef.current;
+    if (!saved) return;
+    undoRef.current = null;
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(null);
+    setLog(prev => {
+      if (saved.entry && saved.entry.id != null && saved.entry.id !== "" && prev.some(e => e && e.id === saved.entry.id)) return prev;
+      const next = prev.slice();
+      next.splice(Math.max(0, Math.min(saved.index, next.length)), 0, saved.entry);
+      return next;
+    });
+  };
   const editEntry = (id, updated) => setLog(prev => prev.map(e => e.id === id ? {
     ...e,
     ...updated
@@ -11669,6 +11793,7 @@ function App() {
     profile: activeProfile,
     profileId: activeProfileId,
     log: log,
+    onAskDelete: setPendingDelete,
     onNavigate: t => {
       if (t === "body") {
         setShowBodyComp(true);
@@ -11749,6 +11874,7 @@ function App() {
   }, React.createElement(LogTab, {
     log: log,
     onDelete: deleteEntry,
+    onAskDelete: setPendingDelete,
     onEdit: editEntry,
     profileId: activeProfileId,
     onAddEntry: addEntry
@@ -11775,8 +11901,22 @@ function App() {
     setTab("strength");
     return null;
   })())), toast && React.createElement("div", {
-    className: "toast"
-  }, React.createElement(IconCheck, null), " ", toast));
+    className: "toast",
+    "data-testid": "toast",
+    style: toast.undo ? { left: 12, right: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } : null
+  }, React.createElement("span", null, toast.undo ? null : React.createElement(IconCheck, null), toast.undo ? "" : " ", toast.text || toast), toast.undo && React.createElement("button", {
+    type: "button",
+    "data-testid": "undo-delete",
+    onClick: undoDelete,
+    style: { minHeight: 44, padding: "8px 14px", background: "#0d1a10", color: "#fff", border: "none", borderRadius: 4, fontFamily: "var(--font-head)", fontWeight: 700 }
+  }, "Undo")), pendingDelete && React.createElement(MfDeleteConfirm, {
+    label: mfWorkoutDeleteLabel(pendingDelete),
+    onCancel: () => setPendingDelete(null),
+    onConfirm: () => {
+      deleteEntry(pendingDelete);
+      setPendingDelete(null);
+    }
+  }));
 }
 function WhyItWorks({
   profile,
@@ -20321,6 +20461,7 @@ function HIITTab({
 function LogTab({
   log,
   onDelete,
+  onAskDelete,
   onEdit,
   profileId,
   onAddEntry
@@ -20971,7 +21112,13 @@ function LogTab({
     }, React.createElement(IconCheck, null), " Save Changes"), React.createElement("button", {
       className: "btn btn-secondary btn-sm",
       onClick: cancelEdit
-    }, "Cancel")));
+    }, "Cancel"), React.createElement("button", {
+      type: "button",
+      className: "btn btn-ghost",
+      "data-testid": "edit-delete",
+      style: { minHeight: 48, marginLeft: "auto", color: "var(--accent)" },
+      onClick: () => onAskDelete && onAskDelete(entry)
+    }, "Delete entry")));
   };
   return React.createElement("div", null, React.createElement("div", {
     style: {
@@ -21055,8 +21202,9 @@ function LogTab({
     className: "empty"
   }, React.createElement("div", {
     className: "empty-icon"
-  }, "📋"), "No sessions logged yet.") : React.createElement("div", null, filtered.map(entry => React.createElement("div", {
-    key: entry.id,
+  }, "📋"), "No sessions logged yet.") : React.createElement("div", null, filtered.map((entry, i) => React.createElement("div", {
+    key: (entry.id != null && entry.id !== "" ? String(entry.id) : "row") + "-" + i,
+    "data-testid": "log-entry",
     style: {
       marginBottom: 8
     }
@@ -21113,14 +21261,20 @@ function LogTab({
       flexShrink: 0
     }
   }, React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
+    className: "btn btn-secondary",
+    style: { minHeight: 48 },
     onClick: () => editingId === entry.id ? cancelEdit() : startEdit(entry)
   }, editingId === entry.id ? "✕ Cancel" : "✎ Edit"), React.createElement("button", {
-    className: "btn btn-ghost btn-sm",
-    onClick: () => {
-      if (confirm("Delete this entry?")) onDelete(entry.id);
+    type: "button",
+    className: "btn btn-ghost",
+    "data-testid": "log-delete",
+    "aria-label": "Delete " + (entry.exercise || "workout"),
+    style: { minHeight: 48, minWidth: 48, color: "var(--accent)" },
+    onClick: e => {
+      e.stopPropagation();
+      if (onAskDelete) onAskDelete(entry);
     }
-  }, React.createElement(IconTrash, null)))), entry.notes && React.createElement("div", {
+  }, React.createElement(IconTrash, null), " Delete"))), entry.notes && React.createElement("div", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 10,
@@ -23721,7 +23875,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44.1 · Nov 16";
+const MF_BUILD_LABEL = "Build 44.2 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
