@@ -3,7 +3,7 @@
    index.html is network-first, so an online visit still picks up a new page
    before this file itself changes.
    Third-party and API requests are never intercepted or stored. */
-const CACHE = "mitoforge-shell-v4";
+const CACHE = "mitoforge-shell-v6";
 
 const API_HOSTS = new Set([
   "api.anthropic.com",
