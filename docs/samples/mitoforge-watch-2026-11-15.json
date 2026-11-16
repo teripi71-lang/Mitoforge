@@ -1,0 +1,74 @@
+{
+  "app": "MitoForge",
+  "keys": {
+    "mf_sample_watch_days": [
+      {
+        "id": "2026-11-15",
+        "date": "2026-11-15",
+        "sleepMin": 430,
+        "deepMin": 70,
+        "lightMin": 230,
+        "remMin": 90,
+        "awakeMin": 40,
+        "bed": "22:15",
+        "wake": "05:25",
+        "restHR": 54,
+        "hrv": 46,
+        "hrvLow": 40,
+        "hrvHigh": 55,
+        "sleepScore": 81,
+        "trainingLoad": 42,
+        "vo2max": 41
+      }
+    ],
+    "mf_sample_watch_acts": [
+      {
+        "id": "demo-walk-1115",
+        "labelId": "demo-walk-1115",
+        "date": "2026-11-15",
+        "kind": "cardio",
+        "sportName": "Pack Walk",
+        "start": "07:05",
+        "end": "08:05",
+        "startTs": 1763193900000,
+        "endTs": 1763197500000,
+        "durSec": 3600,
+        "distM": 4800,
+        "avgHR": 124,
+        "maxHR": 138,
+        "minHR": 108,
+        "cal": 420
+      }
+    ],
+    "mf_sample_log": [
+      {
+        "id": "watch:demo-walk-1115",
+        "type": "cardio",
+        "date": "2026-11-15",
+        "exercise": "Pack Walk",
+        "duration": 60,
+        "distance": "3.0",
+        "distanceUnit": "mi",
+        "verticalFt": 600,
+        "avgHR": "124",
+        "peakHR": "138",
+        "isZ2": true,
+        "notes": "Added from your watch.",
+        "fromWatch": true,
+        "sets": [],
+        "watch": {
+          "labelId": "demo-walk-1115",
+          "sportName": "Pack Walk",
+          "start": "07:05",
+          "end": "08:05",
+          "durSec": 3600,
+          "distM": 4800,
+          "avgHR": 124,
+          "maxHR": 138,
+          "minHR": 108,
+          "cal": 420
+        }
+      }
+    ]
+  }
+}

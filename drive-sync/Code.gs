@@ -105,6 +105,17 @@ function syncInboxName() {
   return "MitoForge inbox.json";
 }
 
+// Morning watch drop: "MitoForge watch YYYY-MM-DD.json"
+function syncIsWatchFile(name) {
+  return /^MitoForge watch \d{4}-\d{2}-\d{2}\.json$/.test(String(name || ""));
+}
+
+function syncWatchDoneName(name) {
+  var m = /^MitoForge watch (\d{4}-\d{2}-\d{2})\.json$/.exec(String(name || ""));
+  var day = m ? m[1] : "day";
+  return "MitoForge watch done " + day + " " + new Date().toISOString() + ".json";
+}
+
 function syncCanonical(value) {
   if (Array.isArray(value)) return "[" + value.map(syncCanonical).join(",") + "]";
   if (value && typeof value === "object") {
@@ -183,6 +194,21 @@ function syncApplyInbox(backup, inboxKeys) {
   return { backup: out, added: added, updated: updated, touched: touched };
 }
 
+// Apply several inbox key-maps in order. Same id updates; a repeat is a no-op.
+function syncApplyInboxList(backup, keySets) {
+  var out = backup;
+  var added = 0;
+  var updated = 0;
+  (keySets || []).forEach(function (keys) {
+    if (!keys) return;
+    var applied = syncApplyInbox(out, keys);
+    out = applied.backup;
+    added += applied.added;
+    updated += applied.updated;
+  });
+  return { backup: out, added: added, updated: updated };
+}
+
 // Which inbox entries are still not in the data the phone just uploaded.
 function syncInboxRemaining(inboxKeys, uploadedKeys) {
   var keys = {};
@@ -235,15 +261,21 @@ function doGet(e) {
       if (!latest) return syncJson_({ ok: false, error: "No sync file yet" });
       var down = syncBackupDownload_(latest.getBlob().getDataAsString("UTF-8"));
       if (down.ok) {
+        var sets = [];
         var inbox = syncFind_(folder, syncInboxName());
         if (inbox) {
           var parsedInbox = syncParseInbox(inbox.getBlob().getDataAsString("UTF-8"));
-          if (parsedInbox.ok) {
-            var applied = syncApplyInbox(down.backup, parsedInbox.keys);
-            down.backup = applied.backup;
-            down.inboxAdded = applied.added;
-            down.inboxUpdated = applied.updated;
-          }
+          if (parsedInbox.ok) sets.push(parsedInbox.keys);
+        }
+        syncWatchFiles_(folder).forEach(function (file) {
+          var parsedWatch = syncParseInbox(file.getBlob().getDataAsString("UTF-8"));
+          if (parsedWatch.ok) sets.push(parsedWatch.keys);
+        });
+        if (sets.length) {
+          var applied = syncApplyInboxList(down.backup, sets);
+          down.backup = applied.backup;
+          down.inboxAdded = applied.added;
+          down.inboxUpdated = applied.updated;
         }
       }
       return syncJson_(down);
@@ -306,18 +338,32 @@ function syncWrite_(folder, name, contents) {
 
 // After an upload, drop inbox entries the phone now holds. Never throws:
 // a problem here must not fail the sync itself.
+function syncWatchFiles_(folder) {
+  var out = [];
+  var it = folder.getFiles();
+  while (it.hasNext()) {
+    var file = it.next();
+    if (syncIsWatchFile(file.getName())) out.push(file);
+  }
+  out.sort(function (a, b) { return a.getName() < b.getName() ? -1 : 1; });
+  return out;
+}
+
+function syncConsumeOne_(file, uploadedKeys, doneName) {
+  var parsed = syncParseInbox(file.getBlob().getDataAsString("UTF-8"));
+  if (!parsed.ok) return;
+  var left = syncInboxRemaining(parsed.keys, uploadedKeys);
+  if (left.count === 0) file.setName(doneName);
+  else file.setContent(JSON.stringify({ app: "MitoForge", keys: left.keys }));
+}
+
 function syncConsumeInbox_(folder, uploadedKeys) {
   try {
     var inbox = syncFind_(folder, syncInboxName());
-    if (!inbox) return;
-    var parsed = syncParseInbox(inbox.getBlob().getDataAsString("UTF-8"));
-    if (!parsed.ok) return;
-    var left = syncInboxRemaining(parsed.keys, uploadedKeys);
-    if (left.count === 0) {
-      inbox.setName("MitoForge inbox done " + new Date().toISOString() + ".json");
-    } else {
-      inbox.setContent(JSON.stringify({ app: "MitoForge", keys: left.keys }));
-    }
+    if (inbox) syncConsumeOne_(inbox, uploadedKeys, "MitoForge inbox done " + new Date().toISOString() + ".json");
+    syncWatchFiles_(folder).forEach(function (file) {
+      syncConsumeOne_(file, uploadedKeys, syncWatchDoneName(file.getName()));
+    });
   } catch (err) {}
 }
 

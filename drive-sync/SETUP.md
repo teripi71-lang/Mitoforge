@@ -97,6 +97,10 @@ Apps Script does not update a deployment by itself.
 
 The `/exec` URL stays the same. You do not paste a new URL into the phone.
 
+## Watch data each morning
+
+A dated file `MitoForge watch YYYY-MM-DD.json` in the same folder is merged on download the same way as the inbox. The shape (sleep, resting heart rate, HRV, and workouts) is in [docs/watch-inbox.md](../docs/watch-inbox.md). This needs the script redeployed as a new version.
+
 ## The inbox (optional): getting entries from Drive into the phone
 
 Anything that can write a file into the `Mitoforge` Drive folder (your AI coach, another tool, you) can drop entries into the app by creating a file named `MitoForge inbox.json`:
