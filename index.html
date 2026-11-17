@@ -1141,6 +1141,11 @@ function useDragSort(items, setItems, getKey) {
 
 
 
+// Zone 2 heart-rate band. Zone 1 is everything below Z2_LO. Zone 3 starts at Z2_HI + 1.
+const Z2_LO = 122;
+const Z2_HI = 132;
+const Z2_RANGE = Z2_LO + "–" + Z2_HI;
+
 // BAND_LEVELS
 const BAND_LEVELS = [
   { key:"light",   label:"Light",   value:1, color:"#f0f0f0" },
@@ -1177,7 +1182,7 @@ const GLP_GUIDE_SECTIONS = [
   {
     id:"zone2", icon:"💚", color:"#4ade80",
     title:"Zone 2 & GLP-1 Synergy",
-    content:`Zone 2 training is particularly important on GLP-1 because the medication's appetite suppression can inadvertently reduce the fuel available for higher-intensity training.\n\nAt Zone 2 intensity (talk test, or heart-rate reserve 60-70%), your body burns mostly fat. (Speculative:) GLP-1's effects on fat mobilization may add to this — not yet well studied.\n\n• 210 minutes per week is the target in your plan\n• Zone 2 counteracts the metabolic slowdown from rapid weight loss\n• It maintains aerobic capacity while the body is in a calorie-restricted state\n• Your Zone 2 targets don't change on GLP-1 — talk test or your tested HR first, Karvonen as the fallback`
+    content:`Zone 2 training is particularly important on GLP-1 because the medication's appetite suppression can inadvertently reduce the fuel available for higher-intensity training.\n\nAt Zone 2 intensity (talk test, or ${Z2_RANGE} bpm), your body burns mostly fat. (Speculative:) GLP-1's effects on fat mobilization may add to this — not yet well studied.\n\n• 210 minutes per week is the target in your plan\n• Zone 2 counteracts the metabolic slowdown from rapid weight loss\n• It maintains aerobic capacity while the body is in a calorie-restricted state\n• Your Zone 2 targets don't change on GLP-1 — talk test first, or ${Z2_RANGE} bpm`
   },
   {
     id:"schedule", icon:"📅", color:"#60a5fa",
@@ -1215,17 +1220,17 @@ const MF_GOAL_LABEL = k => (MF_GOALS.find(g => g[0] === k) || [k, ({muscle:"Musc
 const PLAN_START = "2026-11-08";
 const PLAN_VERSION = 2;
 const PLAN_DAYS = {
-  mon: { title: "Lower A — squat focus", lift: 60, z2: 25, z2hr: "115–125 (easy)", z2how: "recumbent bike", total: 85,
+  mon: { title: "Lower A — squat focus", lift: 60, z2: 25, z2hr: Z2_RANGE, z2how: "recumbent bike", total: 85,
     items: [["Zercher Squat", "4 × 5–8", "Stop 2 reps short. Goblet squat if the left arm reacts."], ["Split Squat", "3 × 8–12 / leg, 3-s lowering", "Last set 0–1 short."], ["Spanish Squat", "2 × 10–15 (or slow step-down)", "Last set 0–1 short; knee pain ≤ 3/10."], ["Copenhagen Plank", "2 × 15–30 s / side", ""]] },
-  tue: { title: "Upper A — press focus", lift: 65, z2: 30, z2hr: "127–132 (in band)", z2how: "bike", total: 95,
+  tue: { title: "Upper A — press focus", lift: 65, z2: 30, z2hr: Z2_RANGE, z2how: "bike", total: 95,
     items: [["Neutral-Grip DB Bench", "3 × 5–8", "Stop 2 reps short."], ["Chest Supported Row", "3 × 8–12, neutral grip", "Last set 0–1 short."], ["Landmine Press", "3 × 10–15", "Last set 0–1 short."], ["Lateral Raise", "3 × 12–20", "Last set 0–1 short."], ["Face Pull", "2 × 12–20", "Last set 0–1 short."], ["Rope Pushdown", "3 × 10–15", "Stop at the first sharp elbow pain."]] },
   wed: { title: "Rowing HIIT", lift: 0, z2: 25, z2hr: "easy flush", z2how: "bike", total: 50, hiit: "6 boosts from 150 bpm · 40 s hold · recover to 130 → easy flush",
     items: [], notes: ["Its own session — not stacked on lifting.", "If the left arm reacts, do the boosts on the bike.", "If Thursday's RDLs feel flat 2 weeks running, move HIIT to the bike or to Tuesday, ≥ 3 h after lifting."] },
-  thu: { title: "Lower B — hinge focus", lift: 55, z2: 25, z2hr: "115–125 (easy)", z2how: "recumbent bike", total: 80,
+  thu: { title: "Lower B — hinge focus", lift: 55, z2: 25, z2hr: Z2_RANGE, z2how: "recumbent bike", total: 80,
     items: [["Barbell RDL", "4 × 5–8, 3-s lowering", "Stop 2 reps short."], ["Step-Up (Slow Step-Down)", "3 × 8–12 / leg", "Last set 1 short."], ["KB Swing", "4 × 10 @ 70 lb", ""]], notes: ["If resting HR is 5+ above usual, do 2 sets of each."] },
-  fri: { title: "Upper B — pull focus", lift: 70, z2: 30, z2hr: "127–132 (in band)", z2how: "bike", total: 100,
+  fri: { title: "Upper B — pull focus", lift: 70, z2: 30, z2hr: Z2_RANGE, z2how: "bike", total: 100,
     items: [["Neutral-Grip Pulldown", "4 × 6–8", "Last set 0–1 short."], ["Chest Supported Row", "3 × 8–12, different grip", "Last set 0–1 short."], ["Incline Neutral-Grip DB Press", "3 × 8–12", "Last set 0–1 short."], ["Lateral Raise", "3 × 12–20", ""], ["Rear-Delt Raise", "3 × 12–20", ""], ["Overhead Cable Triceps Extension", "2–3 × 10–15", "Only if the left elbow is fine; skip if it complains."]], notes: ["No curls."] },
-  sat: { title: "Backpacking day — functional", lift: 20, z2: 75, z2hr: "120–132 (cap ~135 on climbs)", z2how: "pack walk, flat-to-rolling, 60–90 min", total: 95,
+  sat: { title: "Backpacking day — functional", lift: 20, z2: 75, z2hr: Z2_RANGE + " (cap ~135 on climbs)", z2how: "pack walk, flat-to-rolling, 60–90 min", total: 95,
     items: [["Farmer Carries", "3 × 30–40 m", ""], ["Step-Up (Light)", "2 × 10 / leg", ""]], notes: ["Pack walk counts as Zone 2.", "Hip sore? 60 min bike in band + carries only.", "Pack load: +5 lb OR +15 min every 1–2 weeks, never both."] },
   sun: { title: "Rest", lift: 0, z2: 0, total: 0, items: [], notes: ["Full rest or an easy unloaded walk."] }
 };
@@ -1233,12 +1238,12 @@ const PLAN_RX = {};
 Object.values(PLAN_DAYS).forEach(d => d.items.forEach(([n, rx, rule]) => { if (!PLAN_RX[n]) PLAN_RX[n] = { rx, rule, sets: parseInt(rx, 10) || 0 }; }));
 const PLAN_SCHEDULE = {
   0: { type: "rest", label: "Rest Day", sub: "Full rest or easy unloaded walk.", tab: null, icon: "😴", plan: "sun" },
-  1: { type: "str_cardio", label: "Lower A + Zone 2", sub: "Squat focus 60 min → recumbent bike Z2 25 min @ 115–125", tab: "strength", icon: "🔥", plan: "mon" },
-  2: { type: "str_cardio", label: "Upper A + Zone 2", sub: "Press focus 65 min → bike Z2 30 min @ 127–132", tab: "strength", icon: "🔥", plan: "tue" },
+  1: { type: "str_cardio", label: "Lower A + Zone 2", sub: `Squat focus 60 min → recumbent bike Z2 25 min @ ${Z2_RANGE}`, tab: "strength", icon: "🔥", plan: "mon" },
+  2: { type: "str_cardio", label: "Upper A + Zone 2", sub: `Press focus 65 min → bike Z2 30 min @ ${Z2_RANGE}`, tab: "strength", icon: "🔥", plan: "tue" },
   3: { type: "hiit", label: "Rowing HIIT", sub: "6 boosts from 150 · 40 s hold · recover to 130 → easy bike flush 25 min", tab: "hiit", icon: "🚣", plan: "wed" },
-  4: { type: "str_cardio", label: "Lower B + Zone 2", sub: "Hinge focus 55 min → recumbent bike Z2 25 min @ 115–125", tab: "strength", icon: "🔥", plan: "thu" },
-  5: { type: "str_cardio", label: "Upper B + Zone 2", sub: "Pull focus 70 min (no curls) → bike Z2 30 min @ 127–132", tab: "strength", icon: "🔥", plan: "fri" },
-  6: { type: "cardio", label: "Backpacking Day", sub: "Pack walk 60–90 min @ 120–132 (cap ~135) + carries + light step-ups", tab: "cardio", icon: "🎒", plan: "sat" }
+  4: { type: "str_cardio", label: "Lower B + Zone 2", sub: `Hinge focus 55 min → recumbent bike Z2 25 min @ ${Z2_RANGE}`, tab: "strength", icon: "🔥", plan: "thu" },
+  5: { type: "str_cardio", label: "Upper B + Zone 2", sub: `Pull focus 70 min (no curls) → bike Z2 30 min @ ${Z2_RANGE}`, tab: "strength", icon: "🔥", plan: "fri" },
+  6: { type: "cardio", label: "Backpacking Day", sub: `Pack walk 60–90 min @ ${Z2_RANGE} (cap ~135) + carries + light step-ups`, tab: "cardio", icon: "🎒", plan: "sat" }
 };
 const DAY_PLAN_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 function mfActiveProfile() {
@@ -1290,11 +1295,11 @@ const SESSION_TYPES = [
 // OLD_SCHEDULE_HISTORY (pre–Nov 8, 2026 plan; kept for reference)
 const OLD_SCHEDULE_HISTORY = {
   0: { type:"rest",     label:"Rest Day",         sub:"Non-negotiable. Recovery is training.",                         tab:null,    icon:"😴" },
-  1: { type:"cardio",   label:"Zone 2",            sub:"65 min incline treadmill · Target HR 118-125",                  tab:"cardio",icon:"🫀" },
+  1: { type:"cardio",   label:"Zone 2",            sub:`65 min incline treadmill · Target HR ${Z2_RANGE}`,                  tab:"cardio",icon:"🫀" },
   2: { type:"strength", label:"Strength",          sub:"Press · Quads · Anti-rotation · Carries",                      tab:"strength",icon:"💪" },
   3: { type:"hiit",     label:"HIIT Rowing",       sub:"18 min · 6 intervals · Push to 155+ bpm",                      tab:"hiit",  icon:"🚣" },
   4: { type:"kb",       label:"Functional KB",     sub:"35 min ABC circuit · Z2 finish 20 min",                        tab:"kb",    icon:"🏋️" },
-  5: { type:"cardio",   label:"Zone 2",            sub:"65 min incline treadmill · Target HR 118-125",                  tab:"cardio",icon:"🫀" },
+  5: { type:"cardio",   label:"Zone 2",            sub:`65 min incline treadmill · Target HR ${Z2_RANGE}`,                  tab:"cardio",icon:"🫀" },
   6: { type:"strength", label:"LFT",               sub:"VASA Fitness · Full body · 3-week cycle",                      tab:"strength",icon:"💪" },
 };
 const DEFAULT_SCHEDULE = PLAN_SCHEDULE;
@@ -1335,10 +1340,10 @@ const YOGA_STYLES = [
 
 // MITOFORGE_LIBRARY
 const MITOFORGE_LIBRARY = [
-  { id:"lib_plan_lower_a", name:"Plan · Lower A (squat)", desc:"Mon · 60 min, then recumbent bike Z2 25 min @115–125. Goblet squat if the left arm reacts.", exercises:["Zercher Squat","Split Squat","Spanish Squat","Copenhagen Plank"] },
-  { id:"lib_plan_upper_a", name:"Plan · Upper A (press)", desc:"Tue · 65 min, then bike Z2 30 min @127–132.", exercises:["Neutral-Grip DB Bench","Chest Supported Row","Landmine Press","Lateral Raise","Face Pull","Rope Pushdown"] },
-  { id:"lib_plan_lower_b", name:"Plan · Lower B (hinge)", desc:"Thu · 55 min, then recumbent bike Z2 25 min @115–125.", exercises:["Barbell RDL","Step-Up (Slow Step-Down)","KB Swing"] },
-  { id:"lib_plan_upper_b", name:"Plan · Upper B (pull)", desc:"Fri · 70 min, then bike Z2 30 min @127–132. No curls.", exercises:["Neutral-Grip Pulldown","Chest Supported Row","Incline Neutral-Grip DB Press","Lateral Raise","Rear-Delt Raise","Overhead Cable Triceps Extension"] },
+  { id:"lib_plan_lower_a", name:"Plan · Lower A (squat)", desc:`Mon · 60 min, then recumbent bike Z2 25 min @${Z2_RANGE}. Goblet squat if the left arm reacts.`, exercises:["Zercher Squat","Split Squat","Spanish Squat","Copenhagen Plank"] },
+  { id:"lib_plan_upper_a", name:"Plan · Upper A (press)", desc:`Tue · 65 min, then bike Z2 30 min @${Z2_RANGE}.`, exercises:["Neutral-Grip DB Bench","Chest Supported Row","Landmine Press","Lateral Raise","Face Pull","Rope Pushdown"] },
+  { id:"lib_plan_lower_b", name:"Plan · Lower B (hinge)", desc:`Thu · 55 min, then recumbent bike Z2 25 min @${Z2_RANGE}.`, exercises:["Barbell RDL","Step-Up (Slow Step-Down)","KB Swing"] },
+  { id:"lib_plan_upper_b", name:"Plan · Upper B (pull)", desc:`Fri · 70 min, then bike Z2 30 min @${Z2_RANGE}. No curls.`, exercises:["Neutral-Grip Pulldown","Chest Supported Row","Incline Neutral-Grip DB Press","Lateral Raise","Rear-Delt Raise","Overhead Cable Triceps Extension"] },
   { id:"lib_plan_pack", name:"Plan · Backpacking day", desc:"Sat · pack walk 60–90 min (logs as Zone 2 in Cardio) + these.", exercises:["Farmer Carries","Step-Up (Light)"] },
   {
     id:"lib_hinge_pull", name:"LFT Hinge / Pull",
@@ -6418,6 +6423,209 @@ function mfFoodFactor(food, qty, mode) {
   if (mode === "serving" && Number(food.servingGrams) > 0) return s * Number(food.servingGrams) / 100;
   return s / 100;
 }
+const MF_FOOD_LABEL_KEY = id => id ? `mf_${id}_food_labels` : "";
+function mfNetCarbs(carbs, fiber, sugarAlc) {
+  return Math.max(0, Math.round(((Number(carbs) || 0) - (Number(fiber) || 0) - (Number(sugarAlc) || 0)) * 10) / 10);
+}
+function mfFoodLabelKey(food) {
+  if (!food) return "";
+  const bc = String(food.barcode || "").replace(/\D/g, "").replace(/^0+/, "");
+  if (bc.length >= 8) return "bc:" + bc;
+  const name = String(food.name || "").toLowerCase().replace(/\s*\((usda|open food facts)[^)]*\)/gi, "").trim();
+  return name ? "name:" + name : "";
+}
+function mfLoadFoodLabels(profileId) {
+  const raw = profileId ? loadLS(MF_FOOD_LABEL_KEY(profileId), {}) : {};
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+function mfMacrosOf(food) {
+  return {
+    protein: Number(food && (food.protein)) || 0,
+    fat: Number(food && food.fat) || 0,
+    carbs: Number(food && food.carbs) || 0,
+    fiber: Number(food && food.fiber) || 0,
+    sugarAlc: Number(food && food.sugarAlc) || 0,
+    cal: Number(food && (food.cal != null ? food.cal : food.calories)) || 0
+  };
+}
+function mfMacroBasis(food, mode) {
+  const lookup = food && (food.source === "usda" || food.source === "openfoodfacts");
+  if (lookup && mode === "serving" && Number(food.servingGrams) > 0) return "serving";
+  if (lookup) return "100g";
+  return "unit";
+}
+function mfMacroDraft(food, mode) {
+  const basis = mfMacroBasis(food, mode);
+  const native = mfMacrosOf(food);
+  let per = native;
+  if (basis === "serving") {
+    const f = Number(food.servingGrams) / 100;
+    per = {
+      protein: native.protein * f,
+      fat: native.fat * f,
+      carbs: native.carbs * f,
+      fiber: native.fiber * f,
+      sugarAlc: native.sugarAlc * f,
+      cal: native.cal * f
+    };
+  }
+  return {
+    basis,
+    per,
+    servingGrams: food.servingGrams || "",
+    unit: basis === "unit" ? (food.unit || "serving") : "g"
+  };
+}
+function mfDraftMultiplier(draft, qty) {
+  const n = parseFloat(qty);
+  const count = n > 0 ? n : 0;
+  return draft && draft.basis === "100g" ? count / 100 : count;
+}
+function mfShownFromDraft(draft, qty) {
+  const m = mfDraftMultiplier(draft, qty);
+  const p = draft && draft.per || {};
+  const carbs = Math.round((Number(p.carbs) || 0) * m * 10) / 10;
+  const fiber = Math.round((Number(p.fiber) || 0) * m * 10) / 10;
+  const sugarAlc = Math.round((Number(p.sugarAlc) || 0) * m * 10) / 10;
+  return {
+    protein: Math.round((Number(p.protein) || 0) * m * 10) / 10,
+    fat: Math.round((Number(p.fat) || 0) * m * 10) / 10,
+    carbs,
+    fiber,
+    sugarAlc,
+    cal: Math.round((Number(p.cal) || 0) * m),
+    net: mfNetCarbs(carbs, fiber, sugarAlc)
+  };
+}
+function mfDraftEdit(draft, qty, key, raw) {
+  const m = mfDraftMultiplier(draft, qty);
+  const num = Math.max(0, parseFloat(raw) || 0);
+  return { ...draft, per: { ...draft.per, [key]: m > 0 ? num / m : num } };
+}
+function mfNativeFromDraft(food, draft) {
+  const per = draft.per || {};
+  const grams = draft.servingGrams === "" || draft.servingGrams == null ? food.servingGrams : Number(draft.servingGrams);
+  if (draft.basis === "serving" && grams > 0) {
+    const f = 100 / grams;
+    return {
+      protein: per.protein * f, fat: per.fat * f, carbs: per.carbs * f, fiber: per.fiber * f,
+      sugarAlc: per.sugarAlc * f, cal: per.cal * f, servingGrams: grams, unit: draft.unit || food.unit || "g"
+    };
+  }
+  return { ...per, servingGrams: grams || null, unit: draft.unit || food.unit || "" };
+}
+function mfApplySavedLabel(profileId, food) {
+  if (!food) return food;
+  const db = mfMacrosOf(food);
+  db.servingGrams = food.servingGrams || null;
+  db.unit = food.unit || "";
+  const saved = mfLoadFoodLabels(profileId)[mfFoodLabelKey(food)];
+  if (!saved) return { ...food, db, fromLabel: false };
+  return {
+    ...food,
+    protein: Number(saved.protein) || 0,
+    fat: Number(saved.fat) || 0,
+    carbs: Number(saved.carbs) || 0,
+    fiber: Number(saved.fiber) || 0,
+    sugarAlc: Number(saved.sugarAlc) || 0,
+    cal: Number(saved.cal) || 0,
+    servingGrams: saved.servingGrams != null ? saved.servingGrams : food.servingGrams,
+    unit: saved.unit || food.unit,
+    fromLabel: true,
+    db: saved.db || db
+  };
+}
+function mfSaveFoodLabel(profileId, food) {
+  const key = mfFoodLabelKey(food);
+  if (!profileId || !key) return;
+  const all = mfLoadFoodLabels(profileId);
+  const prev = all[key] || {};
+  const m = mfMacrosOf(food);
+  all[key] = {
+    protein: m.protein, fat: m.fat, carbs: m.carbs, fiber: m.fiber, sugarAlc: m.sugarAlc, cal: m.cal,
+    servingGrams: food.servingGrams != null ? food.servingGrams : prev.servingGrams || null,
+    unit: food.unit || prev.unit || "",
+    barcode: String(food.barcode || prev.barcode || "").replace(/\D/g, ""),
+    name: food.name || prev.name || "",
+    db: prev.db || food.db || null
+  };
+  saveLS(MF_FOOD_LABEL_KEY(profileId), all);
+}
+function mfForgetFoodLabel(profileId, food) {
+  const key = mfFoodLabelKey(food);
+  if (!profileId || !key) return;
+  const all = mfLoadFoodLabels(profileId);
+  delete all[key];
+  saveLS(MF_FOOD_LABEL_KEY(profileId), all);
+}
+function mfEntryPer(entry, serving) {
+  const s = Number(serving) || 1;
+  const carbs = entry && entry.carbs != null ? Number(entry.carbs) : (Number(entry && entry.netCarbs) || 0) + (Number(entry && entry.fiber) || 0) + (Number(entry && entry.sugarAlc) || 0);
+  return {
+    protein: (Number(entry && entry.protein) || 0) / s,
+    fat: (Number(entry && entry.fat) || 0) / s,
+    carbs: carbs / s,
+    fiber: (Number(entry && entry.fiber) || 0) / s,
+    sugarAlc: (Number(entry && entry.sugarAlc) || 0) / s,
+    cal: (Number(entry && entry.calories) || 0) / s
+  };
+}
+function mfFoodDeleteLabel(entry) {
+  const name = entry && entry.name || "Food";
+  let date = "—";
+  if (entry && entry.date) {
+    const d = new Date(entry.date + "T12:00:00");
+    const opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    date = d.toLocaleDateString("en-US", opts);
+  }
+  const qty = entry && (entry.serveQty || entry.serving);
+  const unit = entry && entry.serveMode === "grams" ? "g" : entry && entry.unit || "";
+  const amt = qty ? String(qty) + (unit ? " " + unit : "") : "";
+  return [name, date, amt].filter(Boolean).join(" · ");
+}
+function MfFoodMacros({ draft, qty, onDraft }) {
+  if (!draft) return null;
+  const shown = mfShownFromDraft(draft, qty);
+  const num = (key, label, tid) => React.createElement("div", null, React.createElement("label", null, label), React.createElement("input", {
+    "data-testid": tid,
+    type: "number",
+    inputMode: "decimal",
+    min: "0",
+    step: "any",
+    value: shown[key],
+    onChange: e => onDraft(mfDraftEdit(draft, qty, key, e.target.value))
+  }));
+  return React.createElement("div", { "data-testid": "food-macros-edit" }, React.createElement("div", {
+    className: "form-row form-row-2"
+  }, React.createElement("div", null, React.createElement("label", null, "Serving size"), React.createElement("input", {
+    "data-testid": "macro-serving-size",
+    type: "number",
+    min: "0",
+    step: "any",
+    value: draft.servingGrams,
+    onChange: e => onDraft({ ...draft, servingGrams: e.target.value })
+  })), React.createElement("div", null, React.createElement("label", null, "Unit"), React.createElement("input", {
+    "data-testid": "macro-unit",
+    type: "text",
+    value: draft.unit || "",
+    onChange: e => onDraft({ ...draft, unit: e.target.value })
+  }))), React.createElement("div", {
+    className: "form-row form-row-3"
+  }, num("cal", "Calories", "macro-cal"), num("protein", "Protein (g)", "macro-protein"), num("fat", "Fat (g)", "macro-fat")), React.createElement("div", {
+    className: "form-row form-row-3"
+  }, num("carbs", "Total carbs (g)", "macro-carbs"), num("fiber", "Fiber (g)", "macro-fiber"), num("sugarAlc", "Sugar alcohols (g)", "macro-sugar")), React.createElement("div", {
+    "data-testid": "macro-net",
+    style: { fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--teal)", marginTop: 4 }
+  }, "Net carbs ", shown.net, " g"));
+}
+window.mfApplySavedLabel = mfApplySavedLabel;
+window.mfSaveFoodLabel = mfSaveFoodLabel;
+window.mfForgetFoodLabel = mfForgetFoodLabel;
+window.mfFoodLabelKey = mfFoodLabelKey;
+window.mfShownFromDraft = mfShownFromDraft;
+window.mfMacroDraft = mfMacroDraft;
+window.mfNetCarbs = mfNetCarbs;
 function mfMealBlock(time) {
   const m = String(time || "").match(/(\d{1,2}):(\d{2})/);
   if (!m) return "untimed";
@@ -10596,7 +10804,7 @@ function mfRemoveOneLogEntry(log, entry) {
   const removed = next.splice(index, 1)[0];
   return { index, removed, next };
 }
-function MfDeleteConfirm({ label, onCancel, onConfirm }) {
+function MfDeleteConfirm({ label, title, onCancel, onConfirm }) {
   return React.createElement("div", {
     "data-testid": "delete-confirm",
     role: "dialog",
@@ -10629,7 +10837,7 @@ function MfDeleteConfirm({ label, onCancel, onConfirm }) {
       fontWeight: 800,
       marginBottom: 8
     }
-  }, "Delete this workout?"), React.createElement("div", {
+  }, title || "Delete this workout?"), React.createElement("div", {
     "data-testid": "delete-confirm-label",
     style: {
       fontFamily: "var(--font-mono)",
@@ -17959,9 +18167,9 @@ function calcHRTargets(age, rhrIn) {
   }
   const rhrAssumed = !rhr;
   if (!rhr) rhr = 60;
-  // Karvonen (heart-rate reserve): resting + 60–70% of (max − resting)
-  const z2Low = Math.round(rhr + (maxHR - rhr) * 0.60);
-  const z2High = Math.round(rhr + (maxHR - rhr) * 0.70);
+  // Zone 2 is a fixed band. Zone 1 is below Z2_LO. Zone 3 starts at Z2_HI + 1.
+  const z2Low = Z2_LO;
+  const z2High = Z2_HI;
   const hiitTarget = Math.round(maxHR * 0.88);
   const recovTarget = Math.round(maxHR * 0.72);
   return {
@@ -17989,7 +18197,8 @@ function mfHrLine(id) {
   const h = loadHRSet(id),
     parts = [];
   if (h.restHR) parts.push(`resting HR ${h.restHR}bpm`);
-  if (h.z2High) parts.push(`Zone 2 heart-rate cap ${h.z2High}bpm${h.z2Low ? ` (works between ${h.z2Low} and ${h.z2High})` : ""}`);
+  if (h.z2High || h.z2Low) parts.push(`Zone 2 heart-rate cap ${h.z2High || Z2_HI}bpm (works between ${h.z2Low || Z2_LO} and ${h.z2High || Z2_HI})`);
+  else parts.push(`Zone 2 is ${Z2_RANGE} bpm (Zone 1 tops out at ${Z2_LO - 1}, Zone 3 starts at ${Z2_HI + 1})`);
   if (h.boostStart) parts.push(`HIIT boost clock starts at ${h.boostStart}bpm`);
   if (h.recoverTo) parts.push(`recovers to ${h.recoverTo}bpm before the next boost`);
   if (h.holdSec) parts.push(`${h.holdSec}s boost holds`);
@@ -19435,7 +19644,7 @@ function HRTargetsCard({
       gridTemplateColumns: "repeat(4,1fr)",
       gap: 12
     }
-  }, [["Zone 2", z2, "var(--green)", mine("z2High")], ["Boost at", hrSet.boostStart || t.hiitTarget, "var(--accent)", mine("boostStart")], ["Recover to", hrSet.recoverTo || t.recovTarget, "var(--teal)", mine("recoverTo")], ["Hold", (hrSet.holdSec || 40) + "s", "var(--yellow)", mine("holdSec")]].map(([label, val, color, own]) => React.createElement("div", {
+  }, [["Zone 2", z2, "var(--green)", mine("z2High"), "standard"], ["Boost at", hrSet.boostStart || t.hiitTarget, "var(--accent)", mine("boostStart"), "Karvonen"], ["Recover to", hrSet.recoverTo || t.recovTarget, "var(--teal)", mine("recoverTo"), "Karvonen"], ["Hold", (hrSet.holdSec || 40) + "s", "var(--yellow)", mine("holdSec"), "Karvonen"]].map(([label, val, color, own, src]) => React.createElement("div", {
     key: label,
     style: {
       textAlign: "center"
@@ -19464,7 +19673,7 @@ function HRTargetsCard({
       color: "var(--muted)",
       marginTop: 3
     }
-  }, own ? "your setting" : "Karvonen")))), React.createElement("div", {
+  }, own ? "your setting" : src)))), React.createElement("div", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 10,
@@ -19499,7 +19708,7 @@ function HRTargetsCard({
       color: "var(--muted)",
       marginTop: 8
     }
-  }, "Order of trust: talk test → your tested HR → formula. A blank Zone 2 field uses Karvonen (heart-rate reserve): resting HR ", t.restHR, t.rhrAssumed ? " (assumed — enter yours)" : "", " + 60–70% of (max ", t.maxHR, " − resting); max from Tanaka (age ", profile?.age || 50, "). Saved as you type.")));
+  }, "Order of trust: talk test → your tested HR → the standard band. A blank Zone 2 field is ", Z2_RANGE, " bpm. Zone 1 tops out at ", Z2_LO - 1, ". Zone 3 starts at ", Z2_HI + 1, ". Saved as you type.")));
 }
 const STORAGE_KEY_HIIT_TEMPLATES = "mf_hiit_templates";
 function HIITTab({
@@ -21470,7 +21679,7 @@ function FullSystemEval({
       const tr = Number(lastHiit.targetRecovHR) || 137;
       hiitQuality = avgPk ? `Last HIIT: avg peak ${avgPk}bpm (target ${tp}+), avg recovery ${avgRv || "?"}bpm (target ≤${tr}). ${peaks.every(p => p >= tp) ? "All intervals hit peak." : "Some intervals below peak."} ${avgRv && avgRv <= tr ? "Recovery on target." : "Recovery above target — may need more rest between intervals."}` : "";
     }
-    return `${days}-day training: ${totalSess} total sessions. Zone 2: ${z2Min} min (goal ${z2Goal} min, ${Math.round(z2Min / z2Goal * 100)}% of target). HIIT: ${hiitSess.length} session${hiitSess.length !== 1 ? "s" : ""} (goal ~${hiitGoal}/week). Strength/KB: ${strSess.length} session${strSess.length !== 1 ? "s" : ""}. ${hiitQuality}`;
+    return `${days}-day training: ${totalSess} total sessions. Zone 2 (${Z2_RANGE} bpm): ${z2Min} min (goal ${z2Goal} min, ${Math.round(z2Min / z2Goal * 100)}% of target). HIIT: ${hiitSess.length} session${hiitSess.length !== 1 ? "s" : ""} (goal ~${hiitGoal}/week). Strength/KB: ${strSess.length} session${strSess.length !== 1 ? "s" : ""}. ${hiitQuality}`;
   };
   const buildNutritionSummary = days => {
     if (!foodLog.length) return "No nutrition data logged in this period.";
@@ -23875,7 +24084,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44.2 · Nov 16";
+const MF_BUILD_LABEL = "Build 44.4 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -27097,19 +27306,32 @@ function NutritionTab({
   const [selFood, setSelFood] = useState(null);
   const [serving, setServing] = useState("1");
   const [serveMode, setServeMode] = useState("unit");
+  const [macroDraft, setMacroDraft] = useState(null);
+  const [macroDirty, setMacroDirty] = useState(false);
+  const [pendingFood, setPendingFood] = useState(null);
+  const [foodToast, setFoodToast] = useState(false);
+  const foodUndo = useRef(null);
+  const foodToastTimer = useRef(null);
+  const foodLogRef = useRef(foodLog);
+  foodLogRef.current = foodLog;
+  const chooseFood = (food, mode, qty) => {
+    const applied = mfApplySavedLabel(profileId, food);
+    setSelFood(applied);
+    setServeMode(mode);
+    setServing(qty);
+    setMacroDraft(mfMacroDraft(applied, mode));
+    setMacroDirty(false);
+  };
   const selectFood = food => {
-    setSelFood(food);
     const lookup = food && (food.source === "usda" || food.source === "openfoodfacts");
-    if (lookup && Number(food.servingGrams) > 0) {
-      setServeMode("serving");
-      setServing("1");
-    } else if (lookup) {
-      setServeMode("grams");
-      setServing("100");
-    } else {
-      setServeMode("unit");
-      setServing("1");
-    }
+    const applied = mfApplySavedLabel(profileId, food);
+    if (lookup && Number(applied.servingGrams) > 0) chooseFood(food, "serving", "1");
+    else if (lookup) chooseFood(food, "grams", "100");
+    else chooseFood(food, "unit", "1");
+  };
+  const patchDraft = next => {
+    setMacroDraft(next);
+    setMacroDirty(true);
   };
   const [entryTime, setEntryTime] = useState(currentTimeStr());
   const [addMode, setAddMode] = useState("search");
@@ -27306,7 +27528,7 @@ function NutritionTab({
           const data = await res.json();
           const hit = (data.foods || []).find(f => norm(f.gtinUpc) === norm(code));
           const food = hit && usdaParse(hit, true);
-          if (food) { selectFood(food); setScanMsg("Found in USDA: " + food.name.replace(" (USDA, per 100 g)", "")); setScanBusy(false); return; }
+          if (food) { food.barcode = code; selectFood(food); setScanMsg("Found in USDA: " + food.name.replace(" (USDA, per 100 g)", "")); setScanBusy(false); return; }
         }
       } catch (e) {}
       // 2) Open Food Facts
@@ -27324,7 +27546,8 @@ function NutritionTab({
               const food = {
                 name: `${pr.product_name || "Product " + code}${brand ? " — " + brand : ""} (Open Food Facts, per 100 g)`,
                 protein: r(Number(nu["proteins_100g"])), fat: r(Number(nu["fat_100g"])), carbs: r(Number(nu["carbohydrates_100g"])), fiber: r(Number(nu["fiber_100g"])), cal: Math.round(Number(cal)),
-                unit: "100 g", source: "openfoodfacts", fdcId: "off-" + code, branded: true,
+                sugarAlc: r(Number(nu["polyols_100g"] || nu["sugars-alcohol_100g"] || 0)),
+                unit: "100 g", source: "openfoodfacts", fdcId: "off-" + code, branded: true, barcode: code,
                 servingGrams: mfParseServingGrams(pr.serving_size, pr.serving_quantity, "g"),
                 servingText: pr.serving_size ? String(pr.serving_size) : ""
               };
@@ -27364,27 +27587,34 @@ function NutritionTab({
   const addFood = () => {
     if (!selFood) return;
     const qty = parseFloat(serving) || (serveMode === "grams" ? 100 : 1);
-    const factor = mfFoodFactor(selFood, qty, serveMode);
-    const nc = Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0));
-    const lookup = selFood.source === "usda" || selFood.source === "openfoodfacts";
+    const native = macroDraft ? mfNativeFromDraft(selFood, macroDraft) : mfMacrosOf(selFood);
+    const food = { ...selFood, ...native, cal: native.cal };
+    const factor = mfFoodFactor(food, qty, serveMode);
+    const shown = macroDraft ? mfShownFromDraft(macroDraft, qty) : null;
+    const nc = shown ? shown.net : mfNetCarbs((food.carbs || 0) * factor, (food.fiber || 0) * factor, (food.sugarAlc || 0) * factor);
+    const lookup = food.source === "usda" || food.source === "openfoodfacts";
+    if (macroDirty) mfSaveFoodLabel(profileId, food);
     setFoodLog(p => [...p, {
       id: Date.now(),
       date: viewDate,
       time: entryTime,
-      name: selFood.name,
+      name: food.name,
+      barcode: food.barcode || "",
+      servingGrams: food.servingGrams || null,
       serving: Math.round(factor * 1000) / 1000,
       serveQty: qty,
       serveMode,
-      ...(selFood.unit || lookup ? {
-        unit: serveMode === "grams" ? "g" : serveMode === "serving" ? selFood.servingText || (selFood.servingGrams ? `${selFood.servingGrams} g serving` : "serving") : selFood.unit,
-        source: selFood.source
+      ...(food.unit || lookup ? {
+        unit: serveMode === "grams" ? "g" : serveMode === "serving" ? food.servingText || (food.servingGrams ? `${food.servingGrams} g serving` : "serving") : food.unit,
+        source: food.source
       } : {}),
-      protein: Math.round(selFood.protein * factor * 10) / 10,
-      fat: Math.round(selFood.fat * factor * 10) / 10,
-      carbs: Math.round((selFood.carbs || 0) * factor * 10) / 10,
-      fiber: Math.round((selFood.fiber || 0) * factor * 10) / 10,
-      netCarbs: Math.round(nc * factor * 10) / 10,
-      calories: Math.round(selFood.cal * factor)
+      protein: shown ? shown.protein : Math.round(food.protein * factor * 10) / 10,
+      fat: shown ? shown.fat : Math.round(food.fat * factor * 10) / 10,
+      carbs: shown ? shown.carbs : Math.round((food.carbs || 0) * factor * 10) / 10,
+      fiber: shown ? shown.fiber : Math.round((food.fiber || 0) * factor * 10) / 10,
+      sugarAlc: shown ? shown.sugarAlc : Math.round((food.sugarAlc || 0) * factor * 10) / 10,
+      netCarbs: nc,
+      calories: shown ? shown.cal : Math.round(food.cal * factor)
     }]);
     setCustomFoods(prev => {
       const key = selFood.name.toLowerCase().trim();
@@ -27399,6 +27629,8 @@ function NutritionTab({
       }];
     });
     setSelFood(null);
+    setMacroDraft(null);
+    setMacroDirty(false);
     setServing("1");
     setServeMode("unit");
     setFoodSearch("");
@@ -27521,9 +27753,36 @@ All values are per the serving size you specify. Be accurate — use standard nu
     setShowAdd(false);
   };
   const delEntry = id => setFoodLog(p => p.filter(e => e.id !== id));
+  const deleteFoodEntry = entry => {
+    const hit = mfRemoveOneLogEntry(foodLogRef.current, entry);
+    if (!hit) return;
+    setFoodLog(hit.next);
+    foodUndo.current = { entry: hit.removed, index: hit.index };
+    setFoodToast(true);
+    if (foodToastTimer.current) clearTimeout(foodToastTimer.current);
+    foodToastTimer.current = setTimeout(() => {
+      setFoodToast(false);
+      foodUndo.current = null;
+    }, 8000);
+  };
+  const undoFoodDelete = () => {
+    const saved = foodUndo.current;
+    if (!saved) return;
+    foodUndo.current = null;
+    if (foodToastTimer.current) clearTimeout(foodToastTimer.current);
+    setFoodToast(false);
+    setFoodLog(prev => {
+      if (saved.entry && saved.entry.id != null && saved.entry.id !== "" && prev.some(e => e && e.id === saved.entry.id)) return prev;
+      const next = prev.slice();
+      next.splice(Math.max(0, Math.min(saved.index, next.length)), 0, saved.entry);
+      return next;
+    });
+  };
   const [editFoodId, setEditFoodId] = useState(null);
   const [editServing, setEditServing] = useState("1");
   const [editMac, setEditMac] = useState(null);
+  const [editBase, setEditBase] = useState(null);
+  const [editUnit, setEditUnit] = useState("");
   const [editRemember, setEditRemember] = useState(true);
   if (transition && !transition.acknowledged) {
     const toG = transition.to === "glp1";
@@ -27846,7 +28105,24 @@ All values are per the serving size you specify. Be accurate — use standard nu
     }, React.createElement(IconCheck, null), " Set My Targets")));
   }
   const t = targets;
-  return React.createElement("div", null, React.createElement("div", {
+  return React.createElement("div", null, pendingFood && React.createElement(MfDeleteConfirm, {
+    title: "Delete this food?",
+    label: mfFoodDeleteLabel(pendingFood),
+    onCancel: () => setPendingFood(null),
+    onConfirm: () => {
+      deleteFoodEntry(pendingFood);
+      setPendingFood(null);
+    }
+  }), foodToast && React.createElement("div", {
+    className: "toast",
+    "data-testid": "food-toast",
+    style: { left: 12, right: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }
+  }, React.createElement("span", null, "Food deleted"), React.createElement("button", {
+    type: "button",
+    "data-testid": "food-undo",
+    onClick: undoFoodDelete,
+    style: { minHeight: 44, padding: "8px 14px", background: "#0d1a10", color: "#fff", border: "none", borderRadius: 4, fontFamily: "var(--font-head)", fontWeight: 700 }
+  }, "Undo")), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -28628,7 +28904,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
     type: "text", inputMode: "numeric", placeholder: "Or type barcode number", value: scanCode,
     onChange: e => setScanCode(e.target.value), style: { flex: 1 }
   }), React.createElement("button", {
-    className: "btn btn-sm", disabled: scanBusy, onClick: () => { bcStop(); bcLookup(scanCode); }
+    className: "btn btn-sm", "data-testid": "barcode-lookup", disabled: scanBusy, onClick: () => { bcStop(); bcLookup(scanCode); }
   }, scanBusy ? "..." : "Look up"), React.createElement("button", {
     className: "btn btn-sm", onClick: bcClose
   }, "✕")), scanMsg && React.createElement("div", {
@@ -28717,9 +28993,30 @@ All values are per the serving size you specify. Be accurate — use standard nu
       if (off) return;
       setServeMode(mode);
       if (mode === "serving") setServing("1");
-      if (mode === "grams") setServing(String(selFood.servingGrams || 100));
+      if (mode === "grams") setServing(String((macroDraft && macroDraft.servingGrams) || selFood.servingGrams || 100));
+      if (macroDraft) {
+        const synced = { ...selFood, ...mfNativeFromDraft(selFood, macroDraft), cal: mfNativeFromDraft(selFood, macroDraft).cal };
+        setSelFood(synced);
+        setMacroDraft(mfMacroDraft(synced, mode));
+      }
     }
-  }, label))), !(selFood.source === "usda" || selFood.source === "openfoodfacts") && selFood.unit ? " — 1 = " + selFood.unit : ""), React.createElement("div", {
+  }, label))), selFood.fromLabel && React.createElement("div", {
+    "data-testid": "label-tag",
+    style: { marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--teal)", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }
+  }, "your label values", React.createElement("button", {
+    type: "button",
+    className: "btn btn-ghost btn-sm",
+    "data-testid": "label-revert",
+    style: { minHeight: 44 },
+    onClick: () => {
+      mfForgetFoodLabel(profileId, selFood);
+      const db = selFood.db || {};
+      const restored = { ...selFood, ...db, protein: db.protein, fat: db.fat, carbs: db.carbs, fiber: db.fiber, sugarAlc: db.sugarAlc || 0, cal: db.cal, servingGrams: db.servingGrams, unit: db.unit || selFood.unit, fromLabel: false };
+      setSelFood(restored);
+      setMacroDraft(mfMacroDraft(restored, serveMode));
+      setMacroDirty(false);
+    }
+  }, "Use database values")), !(selFood.source === "usda" || selFood.source === "openfoodfacts") && selFood.unit ? " — 1 = " + selFood.unit : ""), React.createElement("div", {
     className: "form-row form-row-2"
   }, React.createElement("div", null, React.createElement("label", null, serveMode === "grams" ? "Grams" : "Servings"), React.createElement("input", {
     "data-testid": "serving-input",
@@ -28742,14 +29039,11 @@ All values are per the serving size you specify. Be accurate — use standard nu
       justifyContent: "center"
     },
     onClick: addFood
-  }, React.createElement(IconCheck, null), " Add — ", fmtTime(entryTime)))), React.createElement("div", {
-    style: {
-      fontFamily: "var(--font-mono)",
-      fontSize: 11,
-      color: "var(--muted)",
-      marginTop: 6
-    }
-  }, "Preview: P:", Math.round(selFood.protein * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · F:", Math.round(selFood.fat * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · NC:", Math.round(Math.max(0, (selFood.carbs || 0) - (selFood.fiber || 0)) * mfFoodFactor(selFood, serving, serveMode) * 10) / 10, "g · ", Math.round(selFood.cal * mfFoodFactor(selFood, serving, serveMode)), "kcal", serveMode === "grams" ? ` · ${serving || 0} g` : serveMode === "serving" ? ` · ${serving || 0} serving${Number(serving) === 1 ? "" : "s"}` : ` · ${serving || 0}×`))), addMode === "custom" && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, React.createElement(IconCheck, null), " Add — ", fmtTime(entryTime)))), React.createElement(MfFoodMacros, {
+    draft: macroDraft,
+    qty: serving,
+    onDraft: patchDraft
+  }))), addMode === "custom" && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "form-row form-row-2",
     style: {
       marginBottom: 10
@@ -29191,7 +29485,8 @@ All values are per the serving size you specify. Be accurate — use standard nu
       calories: e.calories / origServing
     };
     return React.createElement("div", {
-      key: e.id
+      key: e.id,
+      "data-testid": "food-entry"
     }, React.createElement("div", {
       className: "food-entry",
       style: {
@@ -29206,6 +29501,8 @@ All values are per the serving size you specify. Be accurate — use standard nu
         }
         setEditFoodId(isEditing ? null : e.id);
         setEditServing(String(origServing));
+        setEditBase(mfEntryPer(e, origServing));
+        setEditUnit(e.unit || "");
         setEditMac(null);
       }
     }, React.createElement("div", {
@@ -29280,7 +29577,6 @@ All values are per the serving size you specify. Be accurate — use standard nu
       },
       onClick: e2 => {
         e2.stopPropagation();
-        setEditMac(null);
         setEditServing(s => String(Math.max(0.5, Math.round((parseFloat(s) - 0.5) * 10) / 10)));
       }
     }, "−"), React.createElement("div", {
@@ -29296,7 +29592,6 @@ All values are per the serving size you specify. Be accurate — use standard nu
       value: editServing,
       onChange: ev => {
         ev.stopPropagation();
-        setEditMac(null);
         setEditServing(ev.target.value);
       },
       onClick: ev => ev.stopPropagation(),
@@ -29326,7 +29621,6 @@ All values are per the serving size you specify. Be accurate — use standard nu
       },
       onClick: e2 => {
         e2.stopPropagation();
-        setEditMac(null);
         setEditServing(s => String(Math.min(20, Math.round((parseFloat(s) + 0.5) * 10) / 10)));
       }
     }, "+")), React.createElement("div", {
@@ -29359,44 +29653,56 @@ All values are per the serving size you specify. Be accurate — use standard nu
       }
     })), (() => {
       const s = parseFloat(editServing) || 1;
+      const base = editBase || mfEntryPer(e, origServing);
       const r1 = x => Math.round(x * 10) / 10;
-      const auto = { p: r1(perUnit.protein * s), f: r1(perUnit.fat * s), nc: r1(perUnit.netCarbs * s), cal: Math.round(perUnit.calories * s) };
-      const cur = editMac || auto;
-      const fields = [["P", "p", "#ec4899"], ["F", "f", "var(--yellow)"], ["NC", "nc", "var(--teal)"], ["Cal", "cal", "var(--muted)"]];
+      const cur = {
+        protein: r1(base.protein * s),
+        fat: r1(base.fat * s),
+        carbs: r1(base.carbs * s),
+        fiber: r1(base.fiber * s),
+        sugarAlc: r1(base.sugarAlc * s),
+        cal: Math.round(base.cal * s)
+      };
+      const setField = (k, raw) => {
+        const num = Math.max(0, parseFloat(raw) || 0);
+        setEditBase(b => ({ ...(b || base), [k]: num / s }));
+        setEditMac({ touched: true });
+      };
+      const fields = [["Calories", "cal", "var(--muted)", "food-edit-cal"], ["Protein (g)", "protein", "#ec4899", "food-edit-protein"], ["Fat (g)", "fat", "var(--yellow)", "food-edit-fat"], ["Total carbs (g)", "carbs", "var(--teal)", "food-edit-carbs"], ["Fiber (g)", "fiber", "var(--label)", "food-edit-fiber"], ["Sugar alcohols (g)", "sugarAlc", "var(--label)", "food-edit-sugar"]];
       return React.createElement(React.Fragment, null, React.createElement("div", {
+        style: { marginBottom: 8 }
+      }, React.createElement("label", { style: { fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)" } }, "Unit"), React.createElement("input", {
+        "data-testid": "food-edit-unit",
+        type: "text",
+        value: editUnit,
+        onClick: ev => ev.stopPropagation(),
+        onChange: ev => setEditUnit(ev.target.value)
+      })), React.createElement("div", {
         style: {
           display: "flex",
           gap: 8,
           marginBottom: 8,
           padding: "8px 10px",
           background: "var(--card)",
-          borderRadius: 4
+          borderRadius: 4,
+          flexWrap: "wrap"
         }
-      }, fields.map(([lbl, k, col]) => React.createElement("div", {
-        key: lbl,
-        style: {
-          textAlign: "center",
-          flex: 1,
-          minWidth: 0
-        }
+      }, fields.map(([lbl, k, col, tid]) => React.createElement("div", {
+        key: k,
+        style: { textAlign: "center", flex: "1 1 30%", minWidth: 0 }
       }, React.createElement("div", {
-        style: {
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          color: "var(--muted)",
-          marginBottom: 4
-        }
-      }, lbl === "Cal" ? "Cal (kcal)" : lbl + " (g)"), React.createElement("input", {
+        style: { fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", marginBottom: 4 }
+      }, lbl), React.createElement("input", {
         type: "number",
         inputMode: "decimal",
         min: "0",
         step: "any",
+        "data-testid": tid,
         value: cur[k],
-        "aria-label": lbl === "Cal" ? "Calories" : lbl === "P" ? "Protein grams" : lbl === "F" ? "Fat grams" : "Net carbs grams",
         onClick: ev => ev.stopPropagation(),
         onChange: ev => {
           ev.stopPropagation();
-          setEditMac({ ...cur, [k]: ev.target.value });
+          setField(k, ev.target.value);
         },
         style: {
           width: "100%",
@@ -29408,13 +29714,16 @@ All values are per the serving size you specify. Be accurate — use standard nu
           color: col
         }
       })))), React.createElement("div", {
+        "data-testid": "food-edit-net",
+        style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--teal)", marginBottom: 8 }
+      }, "Net carbs ", mfNetCarbs(cur.carbs, cur.fiber, cur.sugarAlc), " g"), React.createElement("div", {
         style: {
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           color: "var(--muted)",
           marginBottom: editMac ? 6 : 12
         }
-      }, "Tap a number to correct it. These are the totals for this entry."), editMac && React.createElement("label", {
+      }, "These totals follow the serving count. Change a number to match the label."), editMac && React.createElement("label", {
         onClick: ev => ev.stopPropagation(),
         style: {
           display: "flex",
@@ -29445,36 +29754,42 @@ All values are per the serving size you specify. Be accurate — use standard nu
       onClick: e2 => {
         e2.stopPropagation();
         const s = Math.max(0.5, parseFloat(editServing) || 1);
-        if (editMac) {
-          const num = v => Math.max(0, parseFloat(v) || 0);
-          const r1 = x => Math.round(x * 10) / 10;
-          const vals = { protein: r1(num(editMac.p)), fat: r1(num(editMac.f)), netCarbs: r1(num(editMac.nc)), calories: Math.round(num(editMac.cal)) };
-          const fib = e.fiber || 0;
-          setFoodLog(p => p.map(entry => entry.id === e.id ? {
-            ...entry,
-            serving: s,
-            ...vals,
-            carbs: r1(vals.netCarbs + fib)
-          } : entry));
-          if (editRemember) {
-            const key = String(e.name || "").toLowerCase().trim();
-            const r2 = x => Math.round(x * 100) / 100;
-            const fibPer = r2((e.fiber || 0) / origServing);
-            const upd = { protein: r2(vals.protein / s), fat: r2(vals.fat / s), carbs: r2(vals.netCarbs / s + fibPer), fiber: fibPer, cal: Math.round(vals.calories / s) };
-            setCustomFoods(prev => prev.some(x => x.name.toLowerCase().trim() === key) ? prev.map(x => x.name.toLowerCase().trim() === key ? { ...x, ...upd } : x) : [...prev, { name: e.name, ...upd }]);
-          }
-          setEditMac(null);
-          setEditFoodId(null);
-          return;
-        }
+        const base = editBase || mfEntryPer(e, origServing);
+        const r1 = x => Math.round(x * 10) / 10;
+        const vals = {
+          protein: r1(base.protein * s),
+          fat: r1(base.fat * s),
+          carbs: r1(base.carbs * s),
+          fiber: r1(base.fiber * s),
+          sugarAlc: r1(base.sugarAlc * s),
+          calories: Math.round(base.cal * s)
+        };
+        vals.netCarbs = mfNetCarbs(vals.carbs, vals.fiber, vals.sugarAlc);
         setFoodLog(p => p.map(entry => entry.id === e.id ? {
           ...entry,
           serving: s,
-          protein: Math.round(perUnit.protein * s * 10) / 10,
-          fat: Math.round(perUnit.fat * s * 10) / 10,
-          netCarbs: Math.round(perUnit.netCarbs * s * 10) / 10,
-          calories: Math.round(perUnit.calories * s)
+          unit: editUnit || entry.unit,
+          ...vals
         } : entry));
+        if (editMac) {
+          const factor = Number(e.serving) || 1;
+          mfSaveFoodLabel(profileId, {
+            ...e,
+            protein: vals.protein / factor,
+            fat: vals.fat / factor,
+            carbs: vals.carbs / factor,
+            fiber: vals.fiber / factor,
+            sugarAlc: vals.sugarAlc / factor,
+            cal: vals.calories / factor,
+            unit: editUnit || e.unit
+          });
+        }
+        if (editRemember && editMac) {
+          const key = String(e.name || "").toLowerCase().trim();
+          const upd = { protein: r1(base.protein), fat: r1(base.fat), carbs: r1(base.carbs), fiber: r1(base.fiber), cal: Math.round(base.cal) };
+          setCustomFoods(prev => prev.some(x => x.name.toLowerCase().trim() === key) ? prev.map(x => x.name.toLowerCase().trim() === key ? { ...x, ...upd } : x) : [...prev, { name: e.name, ...upd }]);
+        }
+        setEditMac(null);
         setEditFoodId(null);
       }
     }, React.createElement(IconCheck, null), " Save"), React.createElement("button", {
@@ -29486,7 +29801,7 @@ All values are per the serving size you specify. Be accurate — use standard nu
       },
       onClick: e2 => {
         e2.stopPropagation();
-        delEntry(e.id);
+        setPendingFood(e);
         setEditFoodId(null);
       }
     }, React.createElement(IconTrash, null), " Delete"), React.createElement("button", {
