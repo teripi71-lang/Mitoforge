@@ -779,9 +779,9 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
       });
       var body = { model: ep.model, max_tokens: maxTokens || 1024, messages: msgs };
       if (system) body.system = system;
-      res = await fetch(ep.url, { method: "POST", headers: { "content-type": "application/json", "x-api-key": c.key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(body) });
+      res = await fetch(ep.url, { method: "POST", signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined, headers: { "content-type": "application/json", "x-api-key": c.key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(body) });
       data = await res.json().catch(function () { return {}; });
-      if (!res.ok) throw { code: res.status === 401 || res.status === 403 ? "bad_key" : res.status === 429 ? "rate_limited" : "upstream_error", detail: data && data.error && data.error.message };
+      if (!res.ok) throw { code: res.status === 401 || res.status === 403 ? "bad_key" : res.status === 429 ? "rate_limited" : res.status >= 500 ? "upstream_error" : "upstream_error", status: res.status, detail: data && data.error && data.error.message };
       return (data.content || []).map(function (b) { return b && b.type === "text" ? b.text : ""; }).join("");
     }
     var om = [];
@@ -790,9 +790,9 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
       if (i === last && images && images.length) om.push({ role: t.role, content: [{ type: "text", text: t.content }].concat(images.map(function (u) { return { type: "image_url", image_url: { url: u } }; })) });
       else om.push({ role: t.role, content: t.content });
     });
-    res = await fetch(ep.url, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + c.key }, body: JSON.stringify({ model: ep.model, max_tokens: maxTokens || 1024, messages: om }) });
+    res = await fetch(ep.url, { method: "POST", signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined, headers: { "Content-Type": "application/json", "Authorization": "Bearer " + c.key }, body: JSON.stringify({ model: ep.model, max_tokens: maxTokens || 1024, messages: om }) });
     data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw { code: res.status === 401 || res.status === 403 ? "bad_key" : res.status === 429 ? "rate_limited" : "upstream_error", detail: data && data.error && (data.error.message || data.error) };
+    if (!res.ok) throw { code: res.status === 401 || res.status === 403 ? "bad_key" : res.status === 429 ? "rate_limited" : "upstream_error", status: res.status, detail: data && data.error && (typeof data.error === "string" ? data.error : data.error.message) };
     var msg = data.choices && data.choices[0] && data.choices[0].message;
     var txt = msg ? msg.content : "";
     if (Array.isArray(txt)) txt = txt.map(function (b) { return b && b.text || ""; }).join("");
@@ -800,10 +800,29 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
   }
   window.mfByoChat = byoChat;
   var BYO_COPY = { bad_key: "Your AI key was rejected. Check it in 🤖 AI Coach settings.", rate_limited: "Your AI provider says you are rate-limited or out of credit. Try again later.", no_key: AI_OFF_MSG };
+  window.mfExplainAIError = function (err) {
+    var e = err || {};
+    var code = String(e.code || e.type || "").toLowerCase();
+    var status = Number(e.status) || 0;
+    var raw = String(e.detail || e.message || "");
+    if (/<[a-z]|\{"|stack/i.test(raw)) raw = code || "error";
+    var detail = [code, status || "", raw].filter(Boolean).join(" · ").slice(0, 180);
+    var name = e && e.name;
+    var offline = code === "offline" || name === "TypeError" || /failed to fetch|networkerror|offline/i.test(raw);
+    var timeout = code === "timeout" || name === "AbortError" || /timeout|aborted/i.test(raw);
+    var missing = code === "no_key" || code === "unavailable";
+    var invalid = code === "bad_key" || code === "not_granted" || code === "session_expired" || status === 401 || status === 403;
+    var quota = code === "rate_limited" || status === 429 || /quota|rate limit|too many/i.test(raw);
+    if (offline) return { kind: "offline", message: "No connection. The coach could not reach the network.", next: "Check that this phone is online, then tap Retry.", detail: detail };
+    if (timeout) return { kind: "timeout", message: "The coach timed out before it answered.", next: "Tap Retry. If it keeps happening, wait a minute and try once more.", detail: detail };
+    if (missing) return { kind: "key", message: "The coach has no key yet.", next: "Open the profile menu, tap AI Coach, and add a key.", detail: detail };
+    if (invalid) return { kind: "key", message: "The coach key is missing or not valid.", next: "Open the profile menu, tap AI Coach, and check the key.", detail: detail };
+    if (quota) return { kind: "quota", message: "The coach hit a rate limit, or the quota is used up.", next: "Wait a little, then tap Retry. If it keeps happening, check the provider account.", detail: detail };
+    return { kind: "server", message: "The coach's server had a problem and did not answer.", next: "Tap Retry in a moment. Nothing on this phone was changed.", detail: detail };
+  };
   function byoFail(e) {
-    var code = e && e.code;
-    if (!code && e instanceof TypeError) { showStatus("warn", "Could not reach your AI provider (offline, or the provider blocks browser calls)."); return; }
-    showStatus("warn", BYO_COPY[code] || ("AI provider error" + (e && e.detail ? ": " + String(e.detail).slice(0, 140) : ". Try again.")));
+    var info = window.mfExplainAIError(e);
+    showStatus("warn", info.message + " " + info.next);
   }
   function parseJSONLoose(t) {
     var c = String(t || "").replace(/```json|```/g, "").trim();
@@ -874,11 +893,24 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
       return { ok: true, status: 200, json: async function () { return { content: [{ type: "text", text: r.text }] }; } };
     } catch (e) {
       var code = e && e.code;
-      if (code !== "cancelled") showStatus("warn", AI_COPY[code] || "Coach could not be reached. Try again.");
+      if (code !== "cancelled") { var info = window.mfExplainAIError({ code: code, detail: e && e.message }); showStatus("warn", info.message + " " + info.next); }
       return { ok: false, status: 500, json: async function () { return { error: { type: code || "upstream_error" } }; } };
     }
   };
 
+  window.mfReadCoach = async function (res) {
+    var data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (!res || !res.ok) {
+      var type = data && data.error && (data.error.type || data.error.code);
+      var detail = data && data.error && (typeof data.error === "string" ? data.error : data.error.message);
+      var info = window.mfExplainAIError({ code: type, status: res && res.status, detail: detail });
+      var ex = new Error(info.message);
+      ex.coach = info;
+      throw ex;
+    }
+    return data;
+  };
   /* ---------- restore screen (plain DOM so it works before any profile exists) ---------- */
   function el(tag, attrs, kids) {
     var e = document.createElement(tag);
@@ -921,7 +953,8 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
     confirmRow.appendChild(go);
     var kids = [
       el("h1", { text: firstRun ? "Welcome to MitoForge" : "Restore from a backup" }),
-      el("p", { text: firstRun ? "This page saves your data to your Claude account, so it follows you to any device. Bring your history across from a backup, or start fresh." : "Restoring replaces everything stored here with the contents of the backup." }),
+      firstRun ? el("p", { class: "mf-msg", style: "font-size:17px;font-weight:700;color:#f0d090", text: "If you used MitoForge before, restore your backup or set up Drive Sync first." }) : el("p", { text: "" }),
+      el("p", { text: firstRun ? "This page can keep your history. Restore a backup, or set up Drive Sync, before you start fresh." : "Restoring replaces everything stored here with the contents of the backup." }),
       el("label", { for: "mf-restore-file", text: "Choose the backup file" }), file,
       el("label", { for: "mf-restore-text", text: "Or paste the backup text" }), box,
       el("div", { class: "mf-row" }, [el("button", { type: "button", class: "mf-btn mf-btn2", text: "Check pasted text", onclick: function () { check(box.value.trim()); } })]),
@@ -2518,6 +2551,70 @@ function AICoach() {
 function TabCoach() {
   return null;
 }
+function MfCoachFail({ info, onRetry }) {
+  const [open, setOpen] = useState(false);
+  const x = info || { message: "The coach could not answer.", next: "Tap Retry.", detail: "" };
+  return React.createElement("div", {
+    "data-testid": "coach-error",
+    style: { background: "#1a1208", border: "1px solid #f0d090", borderRadius: 8, padding: "12px 14px", margin: "8px 0" }
+  }, React.createElement("div", { style: { fontFamily: "var(--font-body)", fontSize: 15, color: "var(--text)", lineHeight: 1.45 } }, x.message), React.createElement("div", { style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", lineHeight: 1.45, marginTop: 6 } }, x.next), React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 10, alignItems: "center" } }, React.createElement("button", {
+    type: "button", className: "btn btn-yellow", "data-testid": "coach-retry", style: { minHeight: 48 }, onClick: onRetry
+  }, "Retry"), React.createElement("button", {
+    type: "button", className: "btn btn-ghost btn-sm", "data-testid": "coach-details", onClick: () => setOpen(v => !v)
+  }, open ? "Hide details" : "Details")), open && React.createElement("div", {
+    "data-testid": "coach-detail",
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginTop: 8, wordBreak: "break-word" }
+  }, x.detail || x.kind || "No extra detail."));
+}
+function mfBackupStatus() {
+  const cfg = window.mfSync && window.mfSync.get ? window.mfSync.get() : null;
+  const ready = cfg && cfg.enabled && cfg.url && cfg.token;
+  if (!ready) return { tone: "bad", text: "Drive Sync not set up, tap to set up" };
+  if (!cfg.lastOkAt) return { tone: "bad", text: "Drive backup: not yet" };
+  const t = new Date(cfg.lastOkAt);
+  if (isNaN(t.getTime())) return { tone: "bad", text: "Drive backup: not yet" };
+  const age = Date.now() - t.getTime();
+  const time = t.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yday = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+  const when = day === todayStr() ? "today " + time : day === yday ? "yesterday " + time : t.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + time;
+  const tone = age > 3 * 86400000 ? "bad" : age > 86400000 ? "old" : "ok";
+  return { tone, text: "Drive backup: " + when };
+}
+function mfParseBuildLabel(html) {
+  const needle = "const MF_BUILD_" + "LABEL = \"";
+  const src = String(html || "");
+  let from = 0, found = "";
+  for (;;) {
+    const i = src.indexOf(needle, from);
+    if (i < 0) break;
+    const start = i + needle.length;
+    const end = src.indexOf("\"", start);
+    const value = end > start ? src.slice(start, end) : "";
+    if (value.indexOf("Build ") === 0) found = value;
+    from = start;
+  }
+  return found;
+}
+async function mfSafeReload() {
+  const cfg = window.mfSync && window.mfSync.get ? window.mfSync.get() : null;
+  if (cfg && cfg.enabled && cfg.url && window.mfSync.syncNow) {
+    try { await window.mfSync.syncNow(); } catch (e) {}
+  }
+  try {
+    if (navigator.serviceWorker) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      else if (reg && reg.update) await reg.update();
+    }
+  } catch (e) {}
+  location.reload();
+}
+window.mfExplainAIError = window.mfExplainAIError || function () { return { kind: "server", message: "The coach could not answer.", next: "Tap Retry.", detail: "" }; };
+window.mfBackupStatus = mfBackupStatus;
+window.mfParseBuildLabel = mfParseBuildLabel;
+window.mfSafeReload = mfSafeReload;
 function analyzeBodyMetrics(entries, profile) {
   if (!entries || entries.length < 2) return null;
   const glp1 = profile?.glp1 === "yes" || profile?.glp1 === "maintaining";
@@ -3570,6 +3667,9 @@ Generate their personalized first week focus.`
       color: "var(--accent)"
     }
   }, "Forge")), React.createElement("div", {
+    "data-testid": "restore-first",
+    style: { margin: "12px 0 16px", padding: "14px 16px", background: "#2a140c", border: "2px solid var(--accent)", borderRadius: 8, fontFamily: "var(--font-body)", fontSize: 16, fontWeight: 700, color: "var(--text)", lineHeight: 1.4 }
+  }, "If you used MitoForge before, restore your backup or set up Drive Sync first."), React.createElement("div", {
     className: "onboard-sub"
   }, "You're here because you want more control over your health. Let's build something that actually works — for your body, your life, your goals."), React.createElement("div", {
     style: {
@@ -7497,10 +7597,13 @@ function TodayScreen({
   profileId,
   log,
   onNavigate,
-  onAskDelete
+  onAskDelete,
+  onOpenSync
 }) {
   const [coachInsight, setCoachInsight] = useState(null);
+  const [coachErr, setCoachErr] = useState(null);
   const [insightLoading, setInsightLoading] = useState(false);
+  const [backupTick, setBackupTick] = useState(0);
   const [checkinData, setCheckinData] = useState(() => {
     try {
       const d = mfStore.getItem(CHECKIN_KEY(profileId));
@@ -7774,37 +7877,44 @@ function TodayScreen({
   const [showFastMenu, setShowFastMenu] = useState(false);
   const greetingWord = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (profile?.name || "").split(" ")[0] || "Athlete";
+  const fetchInsight = async () => {
+    setInsightLoading(true);
+    setCoachErr(null);
+    try {
+      const recentSessions = [...log].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+      const sessionSummary = recentSessions.map(e => `${e.date} ${e.type}: ${e.exercise || "circuit"}`).join(", ");
+      const proteinLine = proteinTarget > 0 ? `Today's protein: ${Math.round(proteinToday)}/${proteinTarget}g.` : "";
+      const res = await mfAI({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 120,
+          system: `You are MitoForge Coach. Write EXACTLY one sentence (under 25 words) of specific, actionable coaching insight for ${firstName} based on their recent data. Be direct. No preamble. No greeting. Just the insight.`,
+          messages: [{
+            role: "user",
+            content: `Profile: ${profile?.age || 50}yo, goal: ${profile?.goal || "health"}, GLP-1: ${glp1 ? "yes" : "no"}. Recent sessions: ${sessionSummary}. ${proteinLine} Today is ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayNum]}, scheduled: ${todaySession.label}.${isFastDay ? " NOTE: User is on an intentional fast today — do not reference protein targets or food in your insight." : ""}`
+          }]
+        })
+      });
+      const data = await window.mfReadCoach(res);
+      const text = data.content?.map(c => c.text || "").join("") || "";
+      if (text) setCoachInsight(text.trim());
+      else setCoachErr(mfExplainAIError({ code: "upstream_error", detail: "empty reply" }));
+    } catch (e) {
+      setCoachErr(e && e.coach || mfExplainAIError(e));
+    }
+    setInsightLoading(false);
+  };
   useEffect(() => {
     if (!log.length || coachInsight !== null) return;
-    const fetchInsight = async () => {
-      setInsightLoading(true);
-      try {
-        const recentSessions = [...log].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
-        const sessionSummary = recentSessions.map(e => `${e.date} ${e.type}: ${e.exercise || "circuit"}`).join(", ");
-        const proteinLine = proteinTarget > 0 ? `Today's protein: ${Math.round(proteinToday)}/${proteinTarget}g.` : "";
-        const res = await mfAI({
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 120,
-            system: `You are MitoForge Coach. Write EXACTLY one sentence (under 25 words) of specific, actionable coaching insight for ${firstName} based on their recent data. Be direct. No preamble. No greeting. Just the insight.`,
-            messages: [{
-              role: "user",
-              content: `Profile: ${profile?.age || 50}yo, goal: ${profile?.goal || "health"}, GLP-1: ${glp1 ? "yes" : "no"}. Recent sessions: ${sessionSummary}. ${proteinLine} Today is ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayNum]}, scheduled: ${todaySession.label}.${isFastDay ? " NOTE: User is on an intentional fast today — do not reference protein targets or food in your insight." : ""}`
-            }]
-          })
-        });
-        const data = await res.json();
-        const text = data.content?.map(c => c.text || "").join("") || "";
-        if (text) setCoachInsight(text.trim());
-      } catch {}
-      setInsightLoading(false);
-    };
     if (window.mfAIState && window.mfAIState() === "off") return;
     fetchInsight();
+  }, []);
+  useEffect(() => {
+    const on = () => setBackupTick(n => n + 1);
+    window.addEventListener("mf-sync-changed", on);
+    return () => window.removeEventListener("mf-sync-changed", on);
   }, []);
   const saveCheckin = updates => {
     const data = {
@@ -7905,7 +8015,17 @@ function TodayScreen({
     month: "long",
     day: "numeric",
     year: "numeric"
-  })), showPostWorkoutPrompt && React.createElement("div", {
+  })), React.createElement("button", {
+    type: "button",
+    "data-testid": "drive-backup",
+    onClick: () => onOpenSync && onOpenSync(),
+    style: (() => {
+      const b = mfBackupStatus();
+      void backupTick;
+      const color = b.tone === "bad" ? "#f87171" : b.tone === "old" ? "#f0d090" : "var(--muted)";
+      return { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "2px 0 8px", fontFamily: "var(--font-mono)", fontSize: 12, color, cursor: "pointer" };
+    })()
+  }, mfBackupStatus().text), showPostWorkoutPrompt && React.createElement("div", {
     style: {
       background: glp1 ? "#1a0a0a" : "#0d1210",
       border: `2px solid ${glp1 ? "#f87171" : "#ec4899"}`,
@@ -9965,7 +10085,7 @@ function TodayScreen({
         textTransform: "uppercase",
         marginBottom: 8
       }
-    }, "✦ Coach Insight"), insightLoading ? React.createElement("div", {
+    }, "✦ Coach Insight"), coachErr ? React.createElement(MfCoachFail, { info: coachErr, onRetry: fetchInsight }) : insightLoading ? React.createElement("div", {
       style: {
         fontFamily: "var(--font-mono)",
         fontSize: 12,
@@ -11078,6 +11198,9 @@ function App() {
   }, [log, activeProfileId]);
   const [sessionSec, setSessionSec] = useState(0);
   const [sessionOn, setSessionOn] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+  const [updateHold, setUpdateHold] = useState(false);
+  const [workoutTick, setWorkoutTick] = useState(0);
   const [restSec, setRestSec] = useState(120);
   const [restInput, setRestInput] = useState("2");
   const [restOn, setRestOn] = useState(false);
@@ -11132,6 +11255,32 @@ function App() {
     const t = setInterval(() => setSessionSec(s => s + 1), 1000);
     return () => clearInterval(t);
   }, [sessionOn]);
+  useEffect(() => {
+    window.__mfSessionOn = !!(sessionOn || restOn);
+  }, [sessionOn, restOn]);
+  useEffect(() => {
+    const on = () => setWorkoutTick(n => n + 1);
+    window.addEventListener("mf-workout", on);
+    return () => window.removeEventListener("mf-workout", on);
+  }, []);
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      try {
+        const res = await fetch("index.html", { cache: "no-store" });
+        if (!res.ok) return;
+        const live = mfParseBuildLabel(await res.text());
+        if (!stop && live && live !== MF_BUILD_LABEL) setUpdateReady(true);
+      } catch (e) {}
+    })();
+    return () => { stop = true; };
+  }, []);
+  useEffect(() => {
+    if (!updateHold) return;
+    if (sessionOn || restOn || window.__mfHiitOn) return;
+    setUpdateHold(false);
+    mfSafeReload();
+  }, [updateHold, sessionOn, restOn, workoutTick]);
   useEffect(() => {
     if (!restOn) return;
     if (restSec <= 0) {
@@ -11995,13 +12144,26 @@ function App() {
   }, "✕ Close")), React.createElement(BodyProgress, {
     profileId: activeProfileId,
     profile: activeProfile
-  })) : React.createElement(React.Fragment, null, tab === "today" && React.createElement(MfGuard, {
+  })) : React.createElement(React.Fragment, null, updateReady && React.createElement("div", {
+    "data-testid": "update-banner",
+    style: { margin: "8px 12px", padding: "12px 14px", background: "#1a1408", border: "1px solid #f0d090", borderRadius: 8, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }
+  }, React.createElement("div", { style: { fontFamily: "var(--font-body)", fontSize: 15 } }, updateHold ? "A newer version is ready. It will update after you log this session." : "A newer version is ready."), React.createElement("button", {
+    type: "button",
+    className: "btn btn-yellow",
+    "data-testid": "update-now",
+    style: { minHeight: 48 },
+    onClick: () => {
+      if (sessionOn || restOn || window.__mfHiitOn) { setUpdateHold(true); return; }
+      mfSafeReload();
+    }
+  }, updateHold ? "Waiting" : "Update")), tab === "today" && React.createElement(MfGuard, {
     name: "Today"
   }, React.createElement(TodayScreen, {
     profile: activeProfile,
     profileId: activeProfileId,
     log: log,
     onAskDelete: setPendingDelete,
+    onOpenSync: () => { setShowDriveSync(true); closeAllMenus(); },
     onNavigate: t => {
       if (t === "body") {
         setShowBodyComp(true);
@@ -12282,13 +12444,13 @@ Design the optimal next ${typeLabel} session.`;
           }]
         })
       });
-      const data = await res.json();
+      const data = await window.mfReadCoach(res);
       const raw = data.content?.map(c => c.text || "").join("") || "";
       const clean = raw.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       setResult(parsed);
     } catch (e) {
-      setError("Could not generate workout. Try again.");
+      setError(e && e.coach || mfExplainAIError(e));
     }
     setLoading(false);
   };
@@ -12379,14 +12541,10 @@ Design the optimal next ${typeLabel} session.`;
     },
     onClick: generate,
     disabled: loading
-  }, loading ? "🧠 Analysing your training history..." : "⚡ Generate Workout Plan"), error && React.createElement("div", {
-    style: {
-      fontFamily: "var(--font-mono)",
-      fontSize: 11,
-      color: "#f87171",
-      marginBottom: 10
-    }
-  }, "⚠ ", error), result && React.createElement("div", null, React.createElement("div", {
+  }, loading ? "🧠 Analysing your training history..." : "⚡ Generate Workout Plan"), error && React.createElement(MfCoachFail, {
+    info: typeof error === "string" ? { message: error, next: "Tap Retry.", detail: "" } : error,
+    onRetry: generate
+  }), result && React.createElement("div", null, React.createElement("div", {
     style: {
       fontFamily: "var(--font-head)",
       fontSize: 18,
@@ -18694,7 +18852,7 @@ function MfHrGraph({ trace, spans }) {
     return React.createElement("rect", { key: i, x: Math.max(0, a), y: 0, width: Math.max(2, Math.min(W, b) - Math.max(0, a)), height: H, fill: "rgba(245,158,11,0.28)" });
   }), React.createElement("polyline", { fill: "none", stroke: "var(--green)", strokeWidth: "2.5", points: line }));
 }
-function LiveHrCard({ profile, mode }) {
+function LiveHrCard({ profile, mode, compact, graphOnly }) {
   const [s, setS] = useState(() => mfHr.snapshot());
   const [, setNow] = useState(0);
   useEffect(() => mfHr.subscribe(setS), []);
@@ -18711,7 +18869,8 @@ function LiveHrCard({ profile, mode }) {
   const rec = s.recovery;
   const recAge = rec ? Math.min(60, Math.round((Date.now() - rec.t0) / 1000)) : 0;
   const recShow = rec && Date.now() - rec.t0 < 65000 && s.bpm;
-  if (!s.supported) {
+  if (graphOnly) return React.createElement("div", { className: "card", "data-testid": "hr-graph-card", style: { marginBottom: 8 } }, React.createElement(MfHrGraph, { trace: s.trace, spans: s.spans }));
+  if (!s.supported && !compact) {
     return React.createElement("div", {
       className: "card mf-hr-card",
       "data-testid": "hr-unsupported"
@@ -18738,19 +18897,19 @@ function LiveHrCard({ profile, mode }) {
     "data-testid": "hr-connect",
     style: { minHeight: 48 },
     onClick: () => mfHrConnect(profile)
-  }, s.remembered && s.remembered.name ? "Connect " + s.remembered.name : "Connect heart rate")), s.status === "live" && React.createElement("div", {
+  }, s.remembered && s.remembered.name ? "Connect " + s.remembered.name : "Connect heart rate")), (s.status === "live" || compact) && React.createElement("div", {
     "data-testid": "hr-bpm",
-    style: { fontFamily: "var(--font-head)", fontSize: 84, fontWeight: 900, lineHeight: 0.9, color, marginTop: 6 }
+    style: { fontFamily: "var(--font-head)", fontSize: compact ? 80 : 84, fontWeight: 900, lineHeight: 0.9, color, marginTop: 4, textAlign: compact ? "center" : "left" }
   }, s.bpm || "—"), s.status === "live" && React.createElement("div", {
     "data-testid": "hr-zone",
-    style: { fontFamily: "var(--font-head)", fontSize: 22, fontWeight: 700, color, letterSpacing: 1 }
-  }, MF_ZONE_NAME[zone] || "", s.name ? React.createElement("span", {
+    style: { fontFamily: "var(--font-head)", fontSize: compact ? 18 : 22, fontWeight: 700, color, letterSpacing: 1, textAlign: compact ? "center" : "left" }
+  }, MF_ZONE_NAME[zone] || "", !compact && s.name ? React.createElement("span", {
     "data-testid": "hr-device",
     style: { display: "block", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 400, color: "var(--muted)", letterSpacing: 0, marginTop: 4 }
-  }, s.name) : null), (s.status === "live" || z2 > 0) && React.createElement("div", {
+  }, s.name) : null), !compact && (s.status === "live" || z2 > 0) && React.createElement("div", {
     "data-testid": "hr-z2",
     style: { fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--label)", marginTop: 6 }
-  }, "Time in Zone 2  ", z2Label), mode === "hiit" && React.createElement(MfHrGraph, {
+  }, "Time in Zone 2  ", z2Label), !compact && mode === "hiit" && React.createElement(MfHrGraph, {
     trace: s.trace,
     spans: s.spans
   }), recShow && mode !== "hiit" && React.createElement("div", {
@@ -18759,7 +18918,7 @@ function LiveHrCard({ profile, mode }) {
   }, "Recovery: ", rec.bpm0, " → ", s.bpm, ", down ", Math.max(0, rec.bpm0 - s.bpm), " in ", recAge, "s"), s.message && React.createElement("div", {
     "data-testid": "hr-status",
     style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--yellow)", marginTop: 8, lineHeight: 1.45 }
-  }, s.message), s.status !== "live" && React.createElement("div", {
+  }, s.message), !compact && s.status !== "live" && React.createElement("div", {
     "data-testid": "hr-help",
     style: { fontFamily: "var(--font-body)", fontSize: 14, color: "var(--label)", lineHeight: 1.5, marginTop: 8 }
   }, MF_HR_HELP));
@@ -19777,9 +19936,11 @@ function HIITTab({
   const [, setTick] = useState(0);
   useEffect(() => {
     window.__mfBoost = bt;
+    window.__mfHiitOn = !!bt;
+    try { window.dispatchEvent(new Event("mf-workout")); } catch (e) {}
     if (!bt) return;
     const t = setInterval(() => setTick(x => x + 1), 250);
-    return () => clearInterval(t);
+    return () => { clearInterval(t); window.__mfHiitOn = false; };
   }, [bt]);
   useEffect(() => {
     if (bt && !bt.beeped && Date.now() - bt.t0 >= bt.holdMs) {
@@ -20025,9 +20186,40 @@ function HIITTab({
       color: "var(--yellow)",
       borderLeftColor: "var(--yellow)"
     }
-  }, "HIIT Session"), React.createElement(LiveHrCard, {
+  }, "HIIT Session"), React.createElement("div", {
+    "data-testid": "hiit-top",
+    style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }
+  }, React.createElement(LiveHrCard, {
     profile: profile,
-    mode: "hiit"
+    mode: "hiit",
+    compact: true
+  }), React.createElement("div", {
+    className: "card",
+    "data-testid": "hiit-boost-top",
+    style: { marginBottom: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }
+  }, !bt && nextIdx >= 0 && React.createElement("button", {
+    type: "button",
+    className: "btn btn-yellow",
+    "data-testid": "hiit-start",
+    style: { width: "100%", minHeight: 72, fontSize: 22 },
+    onClick: startBoost
+  }, "Start boost ", nextIdx + 1), !bt && nextIdx >= 0 && React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", textAlign: "center" }
+  }, "at ", tp, " bpm · ", Number(workSec) || 40, "s hold"), bt && btHold && React.createElement("div", {
+    "data-testid": "hiit-hold",
+    style: { textAlign: "center", fontFamily: "var(--font-head)", fontSize: 56, fontWeight: 900, color: "var(--yellow)", lineHeight: 1 }
+  }, btRemain), bt && !btHold && React.createElement("div", {
+    "data-testid": "hiit-ready-top",
+    style: { textAlign: "center", fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 700, color: mfHrIsReady() ? "var(--green)" : "var(--teal)" }
+  }, mfHrIsReady() ? "Ready for the next boost" : "Resting " + Math.floor(btRec / 60) + ":" + String(btRec % 60).padStart(2, "0")), bt && !btHold && React.createElement("button", {
+    type: "button",
+    className: "btn btn-yellow",
+    style: { width: "100%", minHeight: 48 },
+    onClick: bt.idx + 1 < intervals.length ? startBoost : recovered
+  }, bt.idx + 1 < intervals.length ? "Start next" : "Rest done"))), React.createElement(LiveHrCard, {
+    profile: profile,
+    mode: "hiit",
+    graphOnly: true
   }), showDraftBanner && intervals.some(i => i.peakHR || i.recovHR) && React.createElement(DraftBanner, {
     msg: `Draft restored — ${intervals.filter(i => i.peakHR || i.recovHR).length} interval${intervals.filter(i => i.peakHR || i.recovHR).length !== 1 ? "s" : ""} logged · saved ${draftAge}`,
     onRestore: () => setShowDraftBanner(false),
@@ -20281,7 +20473,7 @@ function HIITTab({
       color: "var(--muted)",
       fontFamily: "var(--font-mono)"
     }
-  }, " — two taps per boost")), !bt && nextIdx >= 0 && React.createElement("div", null, React.createElement("button", {
+  }, " — two taps per boost")), false && !bt && nextIdx >= 0 && React.createElement("div", null, React.createElement("button", {
     className: "btn btn-yellow",
     style: {
       width: "100%",
@@ -20289,7 +20481,7 @@ function HIITTab({
       fontSize: 18
     },
     onClick: startBoost
-  }, "Boost ", nextIdx + 1, " of ", intervals.length, ": at ", tp, " bpm, start ", Number(workSec) || 40, "s hold"), React.createElement("div", {
+  }, "Boost ", nextIdx + 1, " of ", intervals.length, " is also at the top"), React.createElement("div", {
     style: {
       fontFamily: "var(--font-mono)",
       fontSize: 10,
@@ -21635,6 +21827,7 @@ function FullSystemEval({
     notes: ""
   });
   const [result, setResult] = useState("");
+  const [coachErr, setCoachErr] = useState(null);
   const bottomRef = useRef(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
@@ -21750,12 +21943,13 @@ Something specific to their combined data that they may not have considered.`;
           }]
         })
       });
-      const data = await res.json();
+      const data = await window.mfReadCoach(res);
+      setCoachErr(null);
       setResult(data.content?.map(c => c.text || "").join("") || "Unable to generate. Please try again.");
       setStep("result");
     } catch (e) {
-      setResult("Connection error. Please try again.");
-      setStep("result");
+      setCoachErr(e && e.coach || mfExplainAIError(e));
+      setStep("checkin");
     }
   };
   if (!showEval) return React.createElement("div", {
@@ -21928,7 +22122,7 @@ Something specific to their combined data that they may not have considered.`;
       color: "var(--yellow)",
       marginTop: 4
     }
-  }, "⚠ No nutrition targets set — visit Nutrition tab to set up your goals for a complete eval.")), React.createElement("button", {
+  }, "⚠ No nutrition targets set — visit Nutrition tab to set up your goals for a complete eval.")), coachErr && React.createElement(MfCoachFail, { info: coachErr, onRetry: runEval }), React.createElement("button", {
     className: "btn",
     style: {
       background: "#7c3aed",
@@ -24084,7 +24278,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44.4 · Nov 16";
+const MF_BUILD_LABEL = "Build 44.5 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -30181,6 +30375,7 @@ function AIEval({
     notes: ""
   });
   const [result, setResult] = useState("");
+  const [coachErr, setCoachErr] = useState(null);
   const bottomRef = useRef(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
@@ -30238,12 +30433,13 @@ function AIEval({
           }]
         })
       });
-      const data = await res.json();
+      const data = await window.mfReadCoach(res);
+      setCoachErr(null);
       setResult(data.content?.map(c => c.text || "").join("") || "Unable to generate. Try again.");
       setStep("result");
     } catch (e) {
-      setResult("Connection error. Please try again.");
-      setStep("result");
+      setCoachErr(e && e.coach || mfExplainAIError(e));
+      setStep("checkin");
     }
   };
   return React.createElement("div", {
@@ -30364,7 +30560,7 @@ function AIEval({
       justifyContent: "center"
     },
     onClick: runEval
-  }, React.createElement(IconEval, null), " Generate ", WINDOWS[window_], " Eval")), step === "loading" && React.createElement("div", {
+  }, React.createElement(IconEval, null), " Generate ", WINDOWS[window_], " Eval")), coachErr && React.createElement(MfCoachFail, { info: coachErr, onRetry: runEval }), step === "loading" && React.createElement("div", {
     style: {
       padding: "32px 20px",
       textAlign: "center",
