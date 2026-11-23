@@ -11264,6 +11264,16 @@ function App() {
     return () => window.removeEventListener("mf-workout", on);
   }, []);
   useEffect(() => {
+    const r = mfRepairStrPackages();
+    if (r && r.toast) showToast("Your workout packages were repaired. Old copy saved.", 6000);
+    const onSync = () => {
+      const again = mfRepairStrPackages();
+      if (again && again.toast) showToast("Your workout packages were repaired. Old copy saved.", 6000);
+    };
+    window.addEventListener("mf-sync-changed", onSync);
+    return () => window.removeEventListener("mf-sync-changed", onSync);
+  }, []);
+  useEffect(() => {
     let stop = false;
     (async () => {
       try {
@@ -12766,6 +12776,113 @@ function ExerciseSearch({
   }, "No exercises found.")));
 }
 const STORAGE_KEY_STR_TEMPLATES = "mf_str_templates";
+const MF_PKG_BACKUP = "mf_str_templates_backup_pkgfix1";
+const MF_PKG_FLAG = "mf_pkg_repair_v1_done";
+function mfNormEx(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function mfPkgKey(s) {
+  return String(s || "").toLowerCase().replace(/[·•]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+function mfStrengthNameHistory() {
+  const out = [];
+  try {
+    for (let i = 0; i < mfStore.length; i++) {
+      const k = mfStore.key(i);
+      if (!k || k.indexOf("mf_") !== 0 || !/_log$/.test(k)) continue;
+      const list = loadLS(k, []);
+      if (!Array.isArray(list)) continue;
+      list.forEach(e => {
+        if (!e || e.type !== "strength" || !Array.isArray(e.circuitItems)) return;
+        e.circuitItems.forEach(it => {
+          if (it && it.exercise) out.push({ name: String(it.exercise), date: e.date || "", id: Number(e.id) || 0 });
+        });
+      });
+    }
+  } catch (e) {}
+  out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
+  return out;
+}
+function mfLatestLoggedName(history, pred, fallback) {
+  const hit = (history || []).find(h => pred(mfNormEx(h.name)));
+  return hit ? hit.name : fallback;
+}
+function mfRenamePkgExercise(pkg, pred, toName) {
+  const exercises = (pkg.exercises || []).map(n => pred(mfNormEx(n)) ? toName : n);
+  let recWeights = pkg.recWeights;
+  if (recWeights && typeof recWeights === "object" && !Array.isArray(recWeights)) {
+    const next = {};
+    Object.keys(recWeights).forEach(k => {
+      const key = pred(mfNormEx(k)) ? toName : k;
+      if (next[key] == null) next[key] = recWeights[k];
+    });
+    recWeights = next;
+  }
+  return { ...pkg, exercises, recWeights, pkgFix: 1 };
+}
+function mfRepairStrPackages() {
+  let raw = null;
+  try { raw = mfStore.getItem(STORAGE_KEY_STR_TEMPLATES); } catch (e) { return { changed: false }; }
+  const templates = loadLS(STORAGE_KEY_STR_TEMPLATES, null);
+  if (!Array.isArray(templates) || !templates.length) return { changed: false };
+  const byKey = {};
+  templates.forEach(t => { if (t && t.name) byKey[mfPkgKey(t.name)] = t; });
+  const lowerB = byKey["lower b hinge 2 from nov 8"];
+  const upperB = byKey["upper b pull from nov 8"];
+  const lowerA = byKey["lower a squat from nov 8"];
+  const upperA = byKey["upper a press from nov 8"];
+  if (!lowerB || !upperB || !lowerA || !upperA) return { changed: false };
+  const history = mfStrengthNameHistory();
+  const isBbRdl = n => /\brdl\b/.test(n) && !/single/.test(n) && !/\bkb\b/.test(n) && !/kettle/.test(n) && !/snatch/.test(n);
+  const isStep = n => /step up/.test(n) && /slow|step down/.test(n);
+  const isPallof = n => /pallof/.test(n);
+  const isSaRdl = n => /\brdl\b/.test(n) && (/single/.test(n) || /\bkb\b/.test(n) || /kettle/.test(n)) && !/snatch/.test(n);
+  const isSnatch = n => /snatch/.test(n);
+  const isSwing = n => /swing/.test(n);
+  const isPulldown = n => /pull ?down/.test(n) && /neutral/.test(n);
+  const isRear = n => /rear/.test(n) && /delt/.test(n);
+  const isSplit = n => /split squat/.test(n) && !/zercher/.test(n);
+  const lowerBNames = [
+    mfLatestLoggedName(history, isBbRdl, "Barbell RDL"),
+    mfLatestLoggedName(history, isStep, "Step-Up (Slow Step-Down)"),
+    mfLatestLoggedName(history, isPallof, "Pallof Press"),
+    mfLatestLoggedName(history, isSaRdl, "Single-Arm KB RDL"),
+    mfLatestLoggedName(history, isSnatch, "KB Snatch"),
+    mfLatestLoggedName(history, isSwing, "KB Swing")
+  ];
+  const pullName = mfLatestLoggedName(history, isPulldown, "Neutral-Grip Pulldown");
+  const rearName = mfLatestLoggedName(history, isRear, "Rear-Delt Raise");
+  const splitName = mfLatestLoggedName(history, isSplit, "Split Squat");
+  const fixedLowerB = {
+    ...lowerB,
+    name: "Lower B · hinge (from Nov 8)",
+    exercises: lowerBNames,
+    recWeights: lowerB.recWeights && typeof lowerB.recWeights === "object" ? Object.keys(lowerB.recWeights).reduce((acc, k) => {
+      if (lowerBNames.indexOf(k) >= 0) acc[k] = lowerB.recWeights[k];
+      return acc;
+    }, {}) : lowerB.recWeights,
+    pkgFix: 1
+  };
+  const fixedUpperB = mfRenamePkgExercise(mfRenamePkgExercise(upperB, isPulldown, pullName), isRear, rearName);
+  const fixedLowerA = mfRenamePkgExercise(lowerA, n => /split squat/.test(n) && /zercher/.test(n), splitName);
+  const fixedUpperA = { ...upperA };
+  const four = new Set([lowerB, upperB, lowerA, upperA]);
+  const next = [fixedLowerA, fixedUpperA, fixedLowerB, fixedUpperB, ...templates.filter(t => !four.has(t))];
+  const same = JSON.stringify(next) === JSON.stringify(templates);
+  let already = false;
+  try { already = !!mfStore.getItem(MF_PKG_FLAG); } catch (e) {}
+  if (same) {
+    try { if (!already) saveLS(MF_PKG_FLAG, true); } catch (e) {}
+    return { changed: false };
+  }
+  try {
+    if (mfStore.getItem(MF_PKG_BACKUP) == null && raw != null) mfStore.setItem(MF_PKG_BACKUP, raw);
+  } catch (e) {}
+  saveLS(STORAGE_KEY_STR_TEMPLATES, next);
+  saveLS(MF_PKG_FLAG, true);
+  return { changed: true, toast: !already, packages: next };
+}
+window.mfRepairStrPackages = mfRepairStrPackages;
 const STORAGE_KEY_STR_PACKAGES = "mf_str_packages";
 function MfRestPresets({
   timerProps
@@ -24278,7 +24395,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44.5 · Nov 16";
+const MF_BUILD_LABEL = "Build 44.6 · Nov 16";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
