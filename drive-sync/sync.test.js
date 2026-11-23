@@ -120,10 +120,11 @@ test("writes are debounced into one sync", async function () {
   assert.equal(calls.length, 0);
   pending[0].fn();
   await new Promise(function (resolve) { setImmediate(resolve); });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].opts.method, "POST");
-  assert.equal(calls[0].opts.headers["Content-Type"], "text/plain;charset=utf-8");
-  const body = JSON.parse(calls[0].opts.body);
+  // Every sync first downloads the latest Drive backup (GET) to merge, then uploads once (POST).
+  assert.deepEqual(calls.map(function (c) { return c.opts.method; }), ["GET", "POST"]);
+  const upload = calls[1];
+  assert.equal(upload.opts.headers["Content-Type"], "text/plain;charset=utf-8");
+  const body = JSON.parse(upload.opts.body);
   assert.equal(body.app, "MitoForge");
   assert.equal(body.token, "t");
   assert.equal(sync.get().lastError, "");
@@ -151,8 +152,8 @@ test("no config and turn off do not call the endpoint", async function () {
 
 test("a rejected token is shown and not retried as fire-and-forget", async function () {
   const { sync, calls } = harness({
-    fetch: async function () {
-      calls.push(1);
+    fetch: async function (url, opts) {
+      calls.push(opts && opts.method);
       return { type: "basic", text: async function () { return JSON.stringify({ ok: false, error: "Bad token" }); } };
     }
   });
@@ -160,7 +161,7 @@ test("a rejected token is shown and not retried as fire-and-forget", async funct
   const result = await sync.syncNow();
   assert.equal(result.ok, false);
   assert.equal(result.error, "Bad token");
-  assert.equal(calls.length, 1);
+  assert.equal(calls.filter(function (m) { return m === "POST"; }).length, 1);
   assert.equal(sync.get().lastError, "Bad token");
   assert.equal(sync.get().lastOkAt, "");
 });
@@ -181,8 +182,8 @@ test("unreadable POST falls back to no-cors and confirms with GET", async functi
   const result = await sync.syncNow();
   assert.equal(result.ok, true);
   assert.equal(result.confirmed, false);
-  assert.deepEqual(seen.map(function (item) { return item.method + ":" + item.mode; }), ["POST:cors", "POST:no-cors", "GET:cors"]);
-  assert.ok(seen[2].url.includes("token=t"));
+  assert.deepEqual(seen.map(function (item) { return item.method + ":" + item.mode; }), ["GET:cors", "POST:cors", "POST:no-cors", "GET:cors"]);
+  assert.ok(seen[3].url.includes("token=t"));
 });
 
 test("a small hide uses keepalive; a large one does not post", async function () {

@@ -1,0 +1,28 @@
+# Runs on every pull request and on every change to main.
+# It only reports pass or fail. It does not change anything and does not deploy.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: App loads (syntax check)
+        run: node tests/syntax-check.mjs
+      - name: Sync tests
+        run: |
+          node drive-sync/sync.test.js
+          node drive-sync/merge-sync.test.js
+          node drive-sync/inbox.test.js
+          node drive-sync/delete-sync.test.js
