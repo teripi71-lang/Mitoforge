@@ -37,13 +37,13 @@ const kinds = await page.evaluate(() => {
     quota: e({ code: "rate_limited", status: 429 }).kind,
     server: e({ code: "upstream_error", status: 500, detail: "{\"raw\":true}" }).message,
     detail: e({ code: "upstream_error", detail: "{\"raw\":true}" }).detail,
-    build: window.mfParseBuildLabel('const MF_BUILD_LABEL = "Build 44.5 · Nov 16";')
+    build: window.mfParseBuildLabel('const MF_BUILD_LABEL = "Build 45 · Nov 25";')
   };
 });
 assert(kinds.off === "offline" && kinds.timeout === "timeout", JSON.stringify(kinds));
 assert(kinds.key === "key" && kinds.missing === "key" && kinds.quota === "quota", JSON.stringify(kinds));
 assert(!/\{/.test(kinds.detail), kinds.detail);
-assert(kinds.build === "Build 44.5 · Nov 16", kinds.build);
+assert(kinds.build === "Build 45 · Nov 25", kinds.build);
 
 await page.getByTestId("drive-backup").waitFor();
 let backup = await page.getByTestId("drive-backup").innerText();
@@ -72,4 +72,4 @@ await page.screenshot({ path: path.join(OUT, "b45-02-hiit.png") });
 
 if (errors.length) throw new Error(errors.join("\n"));
 await browser.close();
-console.log("batch 44.5 checks passed");
+console.log("batch 45 checks passed");
