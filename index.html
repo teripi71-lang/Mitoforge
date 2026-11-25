@@ -18503,6 +18503,8 @@ const mfHr = {
   boostRows: [],
   openBoost: null,
   resting: null,
+  armed: null,
+  onCross: null,
   recoverRule: { mode: "under", under: 130, drop: 20 },
   device: null,
   stopping: false,
@@ -18533,6 +18535,7 @@ mfHr.snapshot = function () {
     spans: this.spans.slice(-12),
     boostRows: this.boostRows.slice(),
     resting: this.resting,
+    armed: this.armed,
     openBoost: this.openBoost,
     ready: mfHrIsReady()
   };
@@ -18595,6 +18598,15 @@ function mfHrApplySample(bpm, zones) {
     if (n > mfHr.openBoost.peak) mfHr.openBoost.peakAt = now;
     mfHr.openBoost.peak = n;
   }
+  if (mfHr.resting && !mfHr.resting.readyAt && mfHrIsReady()) {
+    mfHr.resting.readyAt = now;
+    mfHr.resting.readyHr = n;
+  }
+  if (mfHr.armed && n >= mfHr.armed.target) {
+    const a = mfHr.armed;
+    mfHr.armed = null;
+    try { mfHr.onCross && mfHr.onCross(a.idx); } catch (e) {}
+  }
   if (mfHr.resting && mfHr.resting.drop60 == null && now - mfHr.resting.restT0 >= 60000) {
     mfHr.resting.drop60 = Math.max(0, (mfHr.resting.peak || n) - n);
   }
@@ -18621,6 +18633,15 @@ function mfHrBeginBoost(idx) {
   mfHr.openSpan = span;
   mfHrEmit();
 }
+function mfHrArm(idx, target) {
+  mfHr.armed = { idx, target: Number(target) || 150, since: Date.now() };
+  mfHrEmit();
+}
+function mfHrDisarm() {
+  if (!mfHr.armed) return;
+  mfHr.armed = null;
+  mfHrEmit();
+}
 function mfHrEndBoost() {
   if (!mfHr.openBoost) return;
   const now = Date.now();
@@ -18643,8 +18664,10 @@ function mfHrFinishRest() {
   const r = mfHr.resting;
   if (!r) return null;
   const now = Date.now();
-  const restSec = Math.max(0, Math.round((now - r.restT0) / 1000));
-  const endHr = mfHr.bpm || 0;
+  // Recovery ends when the heart rate reached the recovery target, not when the next boost was started.
+  const restEnd = r.readyAt || now;
+  const restSec = Math.max(0, Math.round((restEnd - r.restT0) / 1000));
+  const endHr = r.readyHr || mfHr.bpm || 0;
   const drop60 = r.drop60 != null ? r.drop60 : restSec >= 60 ? Math.max(0, (r.peak || endHr) - endHr) : null;
   const row = {
     n: r.idx + 1,
@@ -18816,6 +18839,8 @@ window.mfHrApplySample = mfHrApplySample;
 window.mfHrIsReady = mfHrIsReady;
 window.mfHrBeginBoost = mfHrBeginBoost;
 window.mfHrEndBoost = mfHrEndBoost;
+window.mfHrArm = mfHrArm;
+window.mfHrDisarm = mfHrDisarm;
 window.mfHrFinishRest = mfHrFinishRest;
 window.mfHiitSummary = mfHiitSummary;
 window.mfHrDebug = mfHrDebug;
@@ -19934,6 +19959,8 @@ function HIITTab({
   }, [intervals, date, machine, workSec, totalMin, targetPeak, targetRecov, lactateMin, notes, distance, distUnit]);
   const [bt, setBt] = useState(() => window.__mfBoost || null);
   const [, setTick] = useState(0);
+  // Re-draw on every heart-rate reading so the strap state and the ready cue are always current.
+  useEffect(() => mfHr.subscribe(() => setTick(x => x + 1)), []);
   useEffect(() => {
     window.__mfBoost = bt;
     window.__mfHiitOn = !!bt;
@@ -19943,7 +19970,7 @@ function HIITTab({
     return () => { clearInterval(t); window.__mfHiitOn = false; };
   }, [bt]);
   useEffect(() => {
-    if (bt && !bt.beeped && Date.now() - bt.t0 >= bt.holdMs) {
+    if (bt && !bt.waiting && !bt.beeped && Date.now() - bt.t0 >= bt.holdMs) {
       try {
         playBeep(880, 0.5, 0.5);
         setTimeout(() => playBeep(660, 0.5, 0.5), 350);
@@ -20106,6 +20133,7 @@ function HIITTab({
     mfHr.trace = [];
     mfHr.openBoost = null;
     mfHr.resting = null;
+    mfHr.armed = null;
     setNotes("");
     setDistance("");
     clearDraft();
@@ -20119,9 +20147,14 @@ function HIITTab({
     tr = Number(targetRecov);
   const nextIdx = intervals.findIndex(i => !i.peakHR && !i.recovHR && !i.recovSec);
   const btEl = bt ? Date.now() - bt.t0 : 0;
-  const btHold = bt && btEl < bt.holdMs;
-  const btRemain = bt ? Math.max(0, Math.ceil((bt.holdMs - btEl) / 1000)) : 0;
-  const btRec = bt ? Math.max(0, Math.floor((btEl - bt.holdMs) / 1000)) : 0;
+  const btWait = !!(bt && bt.waiting);
+  const btHold = !!(bt && !btWait && btEl < bt.holdMs);
+  const btRest = !!(bt && !btWait && !btHold);
+  const btRemain = bt && !btWait ? Math.max(0, Math.ceil((bt.holdMs - btEl) / 1000)) : 0;
+  const restNow = mfHr.resting;
+  const btRec = btRest ? (restNow && restNow.readyAt ? Math.max(0, Math.floor((restNow.readyAt - restNow.restT0) / 1000)) : Math.max(0, Math.floor((btEl - bt.holdMs) / 1000))) : 0;
+  const hrLiveNow = () => mfHr.status === "live" && !!mfHr.bpm && Date.now() - (mfHr.lastSample || 0) < 15000;
+  const hrLive = hrLiveNow();
   const recoverMode = hrSet.recoverMode === "drop" ? "drop" : "under";
   const recoverUnder = Number(hrSet.recoverUnder) || Number(targetRecov) || Math.round((hrTargets.maxHR || 170) * 0.7);
   const recoverDrop = Number(hrSet.recoverDrop) || 20;
@@ -20137,9 +20170,18 @@ function HIITTab({
       drop60: row.drop60
     } : r));
   };
-  const startBoost = () => {
+  // Tap on the first boost with a strap connected: wait for the heart rate to reach the boost target, then the hold starts by itself.
+  const armBoost = () => {
+    if (nextIdx < 0) return;
+    if (!hrLiveNow() || !(tp > 0)) { beginBoostNow(); return; }
+    setBt({ idx: nextIdx, waiting: true, t0: Date.now(), holdMs: 0, beeped: true });
+    mfHrArm(nextIdx, tp);
+  };
+  const startBoost = () => beginBoostNow();
+  const beginBoostNow = () => {
+    mfHrDisarm();
     let idx = nextIdx;
-    if (bt && !btHold) {
+    if (bt && !bt.waiting && Date.now() - bt.t0 >= bt.holdMs) {
       const row = mfHrFinishRest();
       applyBoostRow(bt.idx, row);
       idx = bt.idx + 1;
@@ -20168,7 +20210,14 @@ function HIITTab({
     } : r));
     setBt(null);
   };
+  mfHr.onCross = beginBoostNow;
+  useEffect(() => () => { if (mfHr.onCross === beginBoostNow) mfHr.onCross = null; mfHrDisarm(); }, []);
+  useEffect(() => {
+    const r = mfHr.resting;
+    if (btRest && r && r.readyAt && !mfHr.armed && bt.idx + 1 < intervals.length && hrLive && tp > 0) mfHrArm(bt.idx + 1, tp);
+  });
   const cancelBoost = () => {
+    mfHr.armed = null;
     if (mfHr.openSpan) mfHr.spans = mfHr.spans.filter(s => s !== mfHr.openSpan);
     mfHr.openSpan = null;
     mfHr.openBoost = null;
@@ -20202,21 +20251,41 @@ function HIITTab({
     className: "btn btn-yellow",
     "data-testid": "hiit-start",
     style: { width: "100%", minHeight: 72, fontSize: 22 },
-    onClick: startBoost
+    onClick: armBoost
   }, "Start boost ", nextIdx + 1), !bt && nextIdx >= 0 && React.createElement("div", {
     style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", textAlign: "center" }
-  }, "at ", tp, " bpm · ", Number(workSec) || 40, "s hold"), bt && btHold && React.createElement("div", {
+  }, hrLive ? "timer starts by itself at " + tp + " bpm · " + (Number(workSec) || 40) + "s hold" : "at " + tp + " bpm · " + (Number(workSec) || 40) + "s hold · no strap, so tap when you reach it"), btWait && React.createElement("div", {
+    "data-testid": "hiit-waiting",
+    style: { textAlign: "center" }
+  }, React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--yellow)", letterSpacing: 1, textTransform: "uppercase" }
+  }, "Boost ", bt.idx + 1, " · waiting for ", tp, " bpm"), React.createElement("div", {
+    style: { fontFamily: "var(--font-head)", fontSize: 52, fontWeight: 900, color: "var(--yellow)", lineHeight: 1.05 }
+  }, mfHr.bpm || "--"), React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginBottom: 8 }
+  }, "the ", Number(workSec) || 40, "s hold starts the moment you reach it"), React.createElement("div", {
+    style: { display: "flex", gap: 8 }
+  }, React.createElement("button", {
+    type: "button",
+    className: "btn btn-yellow",
+    style: { flex: 1, minHeight: 44 },
+    onClick: beginBoostNow
+  }, "Start now"), React.createElement("button", {
+    type: "button",
+    className: "btn btn-ghost btn-sm",
+    onClick: cancelBoost
+  }, "Cancel"))), bt && btHold && React.createElement("div", {
     "data-testid": "hiit-hold",
     style: { textAlign: "center", fontFamily: "var(--font-head)", fontSize: 56, fontWeight: 900, color: "var(--yellow)", lineHeight: 1 }
-  }, btRemain), bt && !btHold && React.createElement("div", {
+  }, btRemain), btRest && React.createElement("div", {
     "data-testid": "hiit-ready-top",
     style: { textAlign: "center", fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 700, color: mfHrIsReady() ? "var(--green)" : "var(--teal)" }
-  }, mfHrIsReady() ? "Ready for the next boost" : "Resting " + Math.floor(btRec / 60) + ":" + String(btRec % 60).padStart(2, "0")), bt && !btHold && React.createElement("button", {
+  }, mfHrIsReady() ? (mfHr.armed ? "Ready · timer starts at " + tp + " bpm" : "Ready for the next boost") : "Resting " + Math.floor(btRec / 60) + ":" + String(btRec % 60).padStart(2, "0")), btRest && React.createElement("button", {
     type: "button",
     className: "btn btn-yellow",
     style: { width: "100%", minHeight: 48 },
     onClick: bt.idx + 1 < intervals.length ? startBoost : recovered
-  }, bt.idx + 1 < intervals.length ? "Start next" : "Rest done"))), React.createElement(LiveHrCard, {
+  }, bt.idx + 1 < intervals.length ? (hrLive ? "Start now" : "Start next") : "Rest done"))), React.createElement(LiveHrCard, {
     profile: profile,
     mode: "hiit",
     graphOnly: true
@@ -20473,7 +20542,9 @@ function HIITTab({
       color: "var(--muted)",
       fontFamily: "var(--font-mono)"
     }
-  }, " — two taps per boost")), false && !bt && nextIdx >= 0 && React.createElement("div", null, React.createElement("button", {
+  }, hrLive ? " — starts by itself at " + tp + " bpm" : " — two taps per boost")), btWait && React.createElement("div", {
+    style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--yellow)", textAlign: "center" }
+  }, "Waiting for ", tp, " bpm to start boost ", bt.idx + 1, "…"), false && !bt && nextIdx >= 0 && React.createElement("div", null, React.createElement("button", {
     className: "btn btn-yellow",
     style: {
       width: "100%",
@@ -20529,7 +20600,7 @@ function HIITTab({
   }, btRemain), React.createElement("button", {
     className: "btn btn-ghost btn-sm",
     onClick: cancelBoost
-  }, "Cancel this boost")), bt && !btHold && React.createElement("div", null, React.createElement("div", {
+  }, "Cancel this boost")), btRest && React.createElement("div", null, React.createElement("div", {
     style: {
       textAlign: "center",
       marginBottom: 12
@@ -24278,7 +24349,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 44.5 · Nov 16";
+const MF_BUILD_LABEL = "Build 45 · Nov 25";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
