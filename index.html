@@ -11149,6 +11149,12 @@ function App() {
       undoRef.current = null;
     }, ms || 2800);
   };
+  useEffect(() => {
+    if (window.__mfPkgRepaired) {
+      window.__mfPkgRepaired = false;
+      showToast("Workout packages fixed ✓", 4000);
+    }
+  }, []);
   const addEntry = entry => {
     const {
       __also,
@@ -24349,7 +24355,7 @@ function mfAvgGrade(e) {
     est: true
   } : null;
 }
-const MF_BUILD_LABEL = "Build 45 · Nov 25";
+const MF_BUILD_LABEL = "Build 46 · Nov 26";
 function mfCardioSummary(e) {
   const a = [`${e.duration} min`];
   if (e.distance) a.push(`${e.distance} ${e.distanceUnit || "mi"}`);
@@ -30885,8 +30891,50 @@ function ManageExercises({
     color: "var(--yellow)"
   }));
 }
+// One-time repair of saved strength packages (flag mf_pkg_repair_v2_done). Runs before the first render so the screen loads the fixed list.
+function mfRepairStrPackages() {
+  try {
+    if (loadLS("mf_pkg_repair_v2_done", false)) return false;
+    const cur = loadLS("mf_str_templates", null);
+    if (!Array.isArray(cur)) return false;
+    const starts = (t, p) => t && typeof t.name === "string" && t.name.startsWith(p);
+    const lowerB = cur.find(t => starts(t, "Lower B"));
+    const upperB = cur.find(t => starts(t, "Upper B"));
+    if (!lowerB && !upperB) return false; // nothing to fix yet; try again next time
+    // 1) back up the untouched array first
+    saveLS("mf_str_templates_backup_pkgfix2", cur);
+    const renameEx = {
+      "Neutral-Grip Lat Pulldown": "Neutral-Grip Pulldown",
+      "Rear Delt Raise": "Rear-Delt Raise"
+    };
+    let next = cur.map(t => {
+      if (t === lowerB) return {
+        ...t,
+        name: "Lower B · hinge (from Nov 8)",
+        exercises: ["Barbell RDL", "Step-Up (Slow Step-Down)", "Step Down", "Pallof Press", "Single-Arm KB RDL", "KB Snatch", "KB Swing"]
+      };
+      if (t === upperB && Array.isArray(t.exercises)) return {
+        ...t,
+        exercises: t.exercises.map(n => renameEx[n] || n)
+      };
+      return t;
+    });
+    // 2) order: Lower A, Upper A, Lower B, Upper B, then the rest as they were
+    const pick = p => next.find(t => starts(t, p));
+    const head = ["Lower A", "Upper A", "Lower B", "Upper B"].map(pick).filter((t, i, a) => t && a.indexOf(t) === i);
+    next = [...head, ...next.filter(t => !head.includes(t))];
+    saveLS("mf_str_templates", next);
+    saveLS("mf_pkg_repair_v2_done", true);
+    window.__mfPkgRepaired = true;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+window.mfRepairStrPackages = mfRepairStrPackages;
 let mfRoot = null;
 mfBoot(function () {
+  mfRepairStrPackages();
   if (mfRoot) mfRoot.unmount();
   mfRoot = ReactDOM.createRoot(document.getElementById('root'));
   mfRoot.render(React.createElement(MfGuard, {
